@@ -45,10 +45,9 @@ try:
     df = carregar_dados()
 
     # --- SELEÇÃO DE QUANTIDADE ---
-    qtd = st.radio(
+    qtd = st.selectbox(
         "Quantas ofertas deseja montar?",
-        [1, 2, 3],
-        horizontal=True
+        [1, 2, 3]
     )
 
     cotacoes = []
