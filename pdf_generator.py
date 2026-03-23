@@ -1,5 +1,6 @@
 from fpdf import FPDF
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from utils import limpar_texto
 
 # --- CONFIG ---
@@ -72,7 +73,8 @@ class PropostaPDF(FPDF):
         self.set_font(self.fonte_principal, '', 6)
         self.set_text_color(140, 140, 140)
 
-        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+        # --- FUSO HORÁRIO CORRIGIDO ---
+        agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
 
         texto = (
             f"Proposta gerada em {agora}. Valores sujeitos a alteração sem aviso prévio por parte do fornecedor.\n"
@@ -176,10 +178,10 @@ def gerar_pdf(cliente, vendedor, cotacoes):
     pdf.set_text_color(*COR_AZUL_CARRERA)
 
     pdf.set_xy(15, y_inicio)
-    pdf.cell(80, 6, "O que está incluso")
+    pdf.cell(80, 6, "O que está incluso:")
 
     pdf.set_xy(110, y_inicio)
-    pdf.cell(80, 6, "Condições de proteção")
+    pdf.cell(80, 6, "Próximos passos:")
 
     pdf.set_draw_color(*COR_AZUL_CARRERA)
     pdf.set_line_width(0.5)
@@ -192,12 +194,13 @@ def gerar_pdf(cliente, vendedor, cotacoes):
         "Manutenções preventivas inclusas",
         "Assistência 24h nacional",
         "Gestão de multas",
+        "Condutores ilimitados",
         "Proteção completa ao veículo e terceiros"
     ]
 
     condicoes = [
         "Envio da documentação",
-        "Analise de crédito",
+        "Análise de crédito",
         "Assinatura do contrato",
         "Aguardar o veículo chegar",
         "Agendamento da retirada",
@@ -220,7 +223,7 @@ def gerar_pdf(cliente, vendedor, cotacoes):
             pdf.cell(80, 5, f"• {condicoes[i]}")
 
     # CTA
-    pdf.set_xy(10, y_texto + max(len(beneficios), len(condicoes)) * 11 + 8)
+    pdf.set_xy(10, y_texto + max(len(beneficios), len(condicoes)) * 6 + 4)
 
     pdf.set_font(f, 'B', 11)
     pdf.set_text_color(*COR_AZUL_CARRERA)
