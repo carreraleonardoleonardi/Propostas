@@ -33,7 +33,7 @@ def carregar_dados():
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=150)
+    st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=200)
     vendedor = st.text_input("Consultor", "")
     cliente = st.text_input("Cliente", "")
 
