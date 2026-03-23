@@ -56,7 +56,7 @@ try:
 
     for i in range(qtd):
         with cols[i]:
-            st.subheader(f"Oferta {i+1}")
+            st.subheader(f"Oferta {i+1}:")
 
             veiculo = st.selectbox(
                 "Veículo",
