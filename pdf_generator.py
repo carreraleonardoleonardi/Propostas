@@ -230,7 +230,8 @@ def gerar_pdf(cliente, vendedor, cotacoes):
     pdf.cell(
         190,
         8,
-        "Fale com seu consultor e garanta sua condição especial.\n(11) 4003-7214",
+        "Fale com seu consultor e garanta sua condição especial.\n",
+        "(11) 4003-7214",
         align='C'
     )
 
