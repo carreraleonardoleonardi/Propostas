@@ -47,7 +47,7 @@ try:
     # --- SELEÇÃO DE QUANTIDADE ---
     qtd = st.selectbox(
         "Quantas ofertas deseja montar?",
-        [1, 2, 3]
+        [3, 2, 1]
     )
 
     cotacoes = []
