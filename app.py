@@ -37,6 +37,12 @@ with st.sidebar:
     vendedor = st.text_input("Consultor", "")
     cliente = st.text_input("Cliente", "")
 
+    # --- SELEÇÃO DE QUANTIDADE ---
+    qtd = st.selectbox(
+        "Quantas ofertas deseja montar?",
+        [3, 2, 1]
+    )
+
 # --- TÍTULO ---
 st.title("🚗 Gerador de Propostas da Carrera Signature")
 
@@ -44,11 +50,7 @@ st.title("🚗 Gerador de Propostas da Carrera Signature")
 try:
     df = carregar_dados()
 
-    # --- SELEÇÃO DE QUANTIDADE ---
-    qtd = st.selectbox(
-        "Quantas ofertas deseja montar?",
-        [3, 2, 1]
-    )
+
 
     cotacoes = []
     cols = st.columns(3)
