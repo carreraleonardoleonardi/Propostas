@@ -50,8 +50,6 @@ st.title("🚗 Gerador de Propostas da Carrera Signature")
 try:
     df = carregar_dados()
 
-
-
     cotacoes = []
     cols = st.columns(3)
 
@@ -77,7 +75,7 @@ try:
             if col_preco in df.columns:
                 valor = dados[col_preco]
             else:
-                valor = "Sob consulta"
+                valor = "Plano indisponivel!"
 
             valor_limpo = str(valor).strip()
 
