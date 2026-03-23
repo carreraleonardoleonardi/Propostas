@@ -51,7 +51,7 @@ try:
     )
 
     cotacoes = []
-    cols = st.columns(qtd)
+    cols = st.columns(3)
 
     for i in range(qtd):
         with cols[i]:
