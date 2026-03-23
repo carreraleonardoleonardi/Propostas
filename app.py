@@ -54,6 +54,9 @@ with st.sidebar:
         "Quantas ofertas deseja montar?",
         [3, 2, 1]
     )
+    # --- BARRA DE PROGRESSO ---
+    progress_container = st.sidebar.empty()
+
 
 # --- TÍTULO ---
 st.title("🚗 Gerador de Propostas da Carrera Signature")
@@ -109,9 +112,29 @@ try:
 
     st.divider()
 
-    # --- BOTÃO GERAR PDF ---
-    if st.button("🚀 Gerar PDF da proposta", use_container_width=True):
+    if st.button("🚀 Gerar PDF Premium", use_container_width=True):
+        progress_bar = progress_container.progress(0, text="Iniciando geração...")
+
+        import time
+
+        # Simulação de etapas
+        progress_bar.progress(10, text="Preparando dados...")
+        time.sleep(0.2)
+
+        progress_bar.progress(30, text="Montando ofertas...")
+        time.sleep(0.2)
+
+        progress_bar.progress(50, text="Carregando imagens...")
+        time.sleep(0.2)
+
+        progress_bar.progress(70, text="Gerando PDF...")
+    
         pdf = gerar_pdf(cliente, vendedor, cotacoes)
+
+        progress_bar.progress(90, text="Finalizando...")
+        time.sleep(0.2)
+
+        progress_bar.progress(100, text="Pronto!")
 
         st.download_button(
             "📥 Baixar PDF",
@@ -120,6 +143,7 @@ try:
             mime="application/pdf",
             use_container_width=True
         )
+
 
 except Exception as e:
     st.error("❌ Erro ao carregar dados da planilha.")
