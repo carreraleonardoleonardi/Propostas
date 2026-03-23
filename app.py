@@ -46,23 +46,14 @@ def carregar_dados():
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=150)
-    vendedor = st.text_input("Consultor", "Leonardo")
-    cliente = st.text_input("Cliente", "Cliente")
+    st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=200)
+    vendedor = st.text_input("Consultor", "")
+    cliente = st.text_input("Cliente", "")
     # --- SELEÇÃO DE QUANTIDADE ---
     qtd = st.selectbox(
         "Quantas ofertas deseja montar?",
         [3, 2, 1]
     )
-
-# --- LOGO CENTRALIZADO ---
-st.markdown("<br>", unsafe_allow_html=True)
-
-col1, col2, col3 = st.columns([1,2,1])
-with col2:
-    st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=220)
-
-st.markdown("<br>", unsafe_allow_html=True)
 
 # --- TÍTULO ---
 st.title("🚗 Gerador de Propostas da Carrera Signature")
