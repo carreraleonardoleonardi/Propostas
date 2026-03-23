@@ -2,83 +2,76 @@ import streamlit as st
 import pandas as pd
 from pdf_generator import gerar_pdf
 
-# --- CONFIG ---
+# --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
-    page_title="Gerador de Propostas",
-    layout="wide"
+    page_title="Gerador de Propostas da Carrera Signature",
+    page_icon="favicon.png",
+    layout="wide",
+    menu_items={
+        "Get Help": None,
+        "Report a bug": None,
+        "About": None
+    }
 )
 
-URL_LOGO = "https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png"
+# --- ESCONDER MENU E FOOTER ---
+hide_st_style = """
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# 🔗 GOOGLE SHEETS (ABA PLANOS)
-URL_SHEET = "https://docs.google.com/spreadsheets/d/1PfEemQ0vJ4TlS-q-x9hfU-IK1AqUVPun8It_Wi7pzgE/export?format=csv&gid=2034069788"
+# --- GOOGLE SHEETS ---
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1PfEemQ0vJ4TlS-q-x9hfU-IK1AqUVPun8It_Wi7pzgE/export?format=csv&gid=2034069788"
 
-# --- CACHE DE DADOS ---
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def carregar_dados():
-    df = pd.read_csv(URL_SHEET)
-    df.columns = df.columns.str.strip()  # limpa espaços invisíveis
-    return df
+    return pd.read_csv(SHEET_URL)
 
-# --- APP ---
+# --- SIDEBAR ---
+with st.sidebar:
+    st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=150)
+    vendedor = st.text_input("Consultor", "")
+    cliente = st.text_input("Cliente", "")
+
+# --- TÍTULO ---
+st.title("🚗 Gerador de Propostas da Carrera Signature")
+
+# --- CARREGAR DADOS ---
 try:
     df = carregar_dados()
 
-    # --- SIDEBAR ---
-    with st.sidebar:
-        st.image(URL_LOGO, width=150)
-        st.markdown("### 👤 Dados da Proposta")
-
-        vendedor = st.text_input("Consultor", "")
-        cliente = st.text_input("Cliente", "")
-
-        st.divider()
-
-        qtd_ofertas = st.selectbox(
-            "Quantidade de ofertas",
-            [1, 2, 3],
-            index=2
-        )
-
-    # --- HEADER ---
-    st.title("🚗 Gerador de Propostas da Carrera Signature")
-    st.caption("Monte propostas personalizadas em segundos")
+    # --- SELEÇÃO DE QUANTIDADE ---
+    qtd = st.radio(
+        "Quantas ofertas deseja montar?",
+        [1, 2, 3],
+        horizontal=True
+    )
 
     cotacoes = []
+    cols = st.columns(qtd)
 
-    cols = st.columns(qtd_ofertas)
-
-    # --- CARDS DINÂMICOS ---
-    for i in range(qtd_ofertas):
+    for i in range(qtd):
         with cols[i]:
-            st.markdown(f"### Oferta {i+1}")
+            st.subheader(f"Oferta {i+1}")
 
             veiculo = st.selectbox(
                 "Veículo",
-                df['nome'].dropna().unique(),
+                df['nome'].unique(),
                 key=f"veiculo_{i}"
             )
 
             dados = df[df['nome'] == veiculo].iloc[0]
 
-            # imagem
             st.image(dados['imagem'], use_container_width=True)
 
-            # seleções
-            prazo = st.selectbox(
-                "Prazo (meses)",
-                [12, 18, 24, 36],
-                key=f"prazo_{i}"
-            )
+            prazo = st.selectbox("Prazo", [12, 18, 24, 36], key=f"prazo_{i}")
+            km = st.selectbox("KM", [500, 1000, 1500, 2000], key=f"km_{i}")
 
-            km = st.selectbox(
-                "KM mensal",
-                [500, 1000, 1500, 2000],
-                key=f"km_{i}"
-            )
-
-            # preço dinâmico
-            col_preco = f"preço{km}{prazo}"
+            col_preco = f"preco{km}{prazo}"
 
             if col_preco in df.columns:
                 valor = dados[col_preco]
@@ -87,9 +80,8 @@ try:
 
             valor_limpo = str(valor).strip()
 
-            st.success(f"{valor_limpo}")
+            st.success(f"{valor_limpo}/mês")
 
-            # salva cotação
             cotacoes.append({
                 "modelo": veiculo,
                 "prazo": prazo,
@@ -100,22 +92,18 @@ try:
 
     st.divider()
 
-    # --- BOTÃO PDF ---
+    # --- BOTÃO GERAR PDF ---
     if st.button("🚀 Gerar PDF", use_container_width=True):
-        if not cotacoes:
-            st.warning("Selecione pelo menos uma oferta.")
-        else:
-            pdf = gerar_pdf(cliente, vendedor, cotacoes)
+        pdf = gerar_pdf(cliente, vendedor, cotacoes)
 
-            st.download_button(
-                label="📥 Baixar PDF",
-                data=pdf,
-                file_name=f"Proposta_Carrera_Signature_{cliente}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
+        st.download_button(
+            "📥 Baixar PDF",
+            data=pdf,
+            file_name=f"Proposta_{cliente}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
 
-# --- ERRO ---
 except Exception as e:
     st.error("❌ Erro ao carregar dados da planilha.")
     st.exception(e)
