@@ -166,7 +166,7 @@ def gerar_pdf(cliente, vendedor, cotacoes):
 
         pdf.set_font(f, '', 8)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(largura, 4, "/mês", new_x="LMARGIN", new_y="NEXT", align='C')
+        pdf.cell(largura, 4, "", new_x="LMARGIN", new_y="NEXT", align='C')
 
     # --- BLOCO FINAL ---
     pdf.set_y(y_topo + 95)
