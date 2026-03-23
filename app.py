@@ -53,7 +53,7 @@ try:
     cotacoes = []
     cols = st.columns(3)
 
-    for i in range(qtd):
+    for i in range(3):
         with cols[i]:
             st.subheader(f"Oferta {i+1}:")
 
