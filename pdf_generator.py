@@ -1,7 +1,5 @@
 from fpdf import FPDF
 from datetime import datetime
-import requests
-from io import BytesIO
 from utils import limpar_texto
 
 # --- CONFIG ---
@@ -10,7 +8,6 @@ COR_CINZA_CLARO = (245, 245, 245)
 
 URL_LOGO = "https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png"
 
-# --- ICONES ---
 ICON_INSTA = "https://cdn-icons-png.flaticon.com/512/174/174855.png"
 ICON_WAPP = "https://cdn-icons-png.flaticon.com/512/3670/3670051.png"
 ICON_YOUTUBE = "https://cdn-icons-png.flaticon.com/512/174/174883.png"
@@ -31,7 +28,7 @@ class PropostaPDF(FPDF):
             self.add_font("Montserrat", "B", "assets/Montserrat-Bold.ttf")
             self.fonte_principal = "Montserrat"
         except:
-            self.fonte_principal = "Arial"
+            pass
 
     def header(self):
         # fundo
@@ -40,11 +37,10 @@ class PropostaPDF(FPDF):
 
         # logo
         try:
-            res = requests.get(URL_LOGO, timeout=5)
-            self.image(BytesIO(res.content), 75, 10, 60, type='PNG')
+            self.image(URL_LOGO, 75, 10, 60)
         except:
             self.set_font(self.fonte_principal, 'B', 12)
-            self.cell(0, 10, "CARRERA SIGNATURE", ln=True, align='C')
+            self.cell(0, 10, "CARRERA SIGNATURE", new_x="LMARGIN", new_y="NEXT", align='C')
 
         # linha
         self.set_draw_color(180, 180, 180)
@@ -53,14 +49,6 @@ class PropostaPDF(FPDF):
 
     def footer(self):
         self.set_y(-28)
-
-        # --- FUNÇÃO LOAD IMG ---
-        def load_img(url):
-            try:
-                res = requests.get(url, timeout=5)
-                return BytesIO(res.content)
-            except:
-                return None
 
         icon_size = 6
         spacing = 10
@@ -71,22 +59,14 @@ class PropostaPDF(FPDF):
 
         y_icons = self.get_y()
 
-        # Instagram
-        img = load_img(ICON_INSTA)
-        if img:
-            self.image(img, x=start_x, y=y_icons, w=icon_size, type='PNG', link=LINK_INSTA)
+        # Ícones clicáveis
+        try:
+            self.image(ICON_INSTA, start_x, y_icons, icon_size, link=LINK_INSTA)
+            self.image(ICON_WAPP, start_x + icon_size + spacing, y_icons, icon_size, link=LINK_WAPP)
+            self.image(ICON_YOUTUBE, start_x + (icon_size + spacing) * 2, y_icons, icon_size, link=LINK_YOUTUBE)
+        except:
+            pass
 
-        # WhatsApp
-        img = load_img(ICON_WAPP)
-        if img:
-            self.image(img, x=start_x + icon_size + spacing, y=y_icons, w=icon_size, type='PNG', link=LINK_WAPP)
-
-        # YouTube
-        img = load_img(ICON_YOUTUBE)
-        if img:
-            self.image(img, x=start_x + (icon_size + spacing) * 2, y=y_icons, w=icon_size, type='PNG', link=LINK_YOUTUBE)
-
-        # --- TEXTO ---
         self.ln(8)
 
         self.set_font(self.fonte_principal, '', 6)
@@ -116,7 +96,9 @@ def gerar_pdf(cliente, vendedor, cotacoes):
     pdf.cell(
         0, 8,
         f"Olá {cliente}, a Carrera Signature tem uma proposta especial para você!",
-        ln=True, align='C'
+        new_x="LMARGIN",
+        new_y="NEXT",
+        align='C'
     )
 
     pdf.ln(2)
@@ -140,41 +122,51 @@ def gerar_pdf(cliente, vendedor, cotacoes):
         x = 10 + i * (largura + espacamento)
         y = y_topo
 
+        # sombra
         pdf.set_fill_color(230, 230, 230)
         pdf.rect(x+1, y+1, largura, altura_card, 'F')
 
+        # card
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(220, 220, 220)
         pdf.rect(x, y, largura, altura_card, 'FD')
 
+        # título
         pdf.set_xy(x, y + 4)
         pdf.set_font(f, 'B', 9)
         pdf.set_text_color(*COR_AZUL_CARRERA)
         pdf.multi_cell(largura, 5, limpar_texto(c['modelo'])[:60], align='C')
 
         # imagem
-        y_img = y + 18
         try:
-            res = requests.get(c['url_foto'], timeout=5)
-            pdf.image(BytesIO(res.content), x=x + 5, y=y_img, w=50, type='PNG')
+            pdf.image(c['url_foto'], x + 5, y + 18, 50)
         except:
             pass
 
+        # info
         pdf.set_xy(x, y + 52)
         pdf.set_font(f, '', 8)
         pdf.set_text_color(90, 90, 90)
-        pdf.cell(largura, 5, f"{c['prazo']} meses | {c['km']} km", align='C', ln=True)
+        pdf.cell(
+            largura,
+            5,
+            f"{c['prazo']} meses | {c['km']} km",
+            new_x="LMARGIN",
+            new_y="NEXT",
+            align='C'
+        )
 
+        # preço
         pdf.set_xy(x, y + 60)
         pdf.set_font(f, 'B', 16)
         pdf.set_text_color(*COR_AZUL_CARRERA)
 
         valor_limpo = str(c['valor']).strip()
-        pdf.cell(largura, 6, valor_limpo, align='C', ln=True)
+        pdf.cell(largura, 6, valor_limpo, new_x="LMARGIN", new_y="NEXT", align='C')
 
         pdf.set_font(f, '', 8)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(largura, 4, "/mês", align='C', ln=True)
+        pdf.cell(largura, 4, "/mês", new_x="LMARGIN", new_y="NEXT", align='C')
 
     # --- BLOCO FINAL ---
     pdf.set_y(y_topo + 95)
@@ -184,10 +176,10 @@ def gerar_pdf(cliente, vendedor, cotacoes):
     pdf.set_text_color(*COR_AZUL_CARRERA)
 
     pdf.set_xy(15, y_inicio)
-    pdf.cell(80, 6, "O que está incluso:")
+    pdf.cell(80, 6, "O que está incluso")
 
     pdf.set_xy(110, y_inicio)
-    pdf.cell(80, 6, "Proximos passos:")
+    pdf.cell(80, 6, "Condições de proteção")
 
     pdf.set_draw_color(*COR_AZUL_CARRERA)
     pdf.set_line_width(0.5)
