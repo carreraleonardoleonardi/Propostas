@@ -223,15 +223,14 @@ def gerar_pdf(cliente, vendedor, cotacoes):
             pdf.cell(80, 5, f"• {condicoes[i]}")
 
     # CTA
-    pdf.set_xy(10, y_texto + max(len(beneficios), len(condicoes)) * 12 + 6)
+    pdf.set_xy(10, y_texto + max(len(beneficios), len(condicoes)) * 11 + 6)
 
     pdf.set_font(f, 'B', 11)
     pdf.set_text_color(*COR_AZUL_CARRERA)
-    pdf.cell(
+    pdf.multi_cell(
         190,
         8,
-        "Fale com seu consultor e garanta sua condição especial.\n",
-        "(11) 4003-7214",
+        "Fale com seu consultor e garanta sua condição especial.\n(11) 4003-7214",
         align='C'
     )
 
