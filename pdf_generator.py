@@ -223,7 +223,7 @@ def gerar_pdf(cliente, vendedor, cotacoes):
             pdf.cell(80, 5, f"• {condicoes[i]}")
 
     # CTA
-    pdf.set_xy(10, y_texto + max(len(beneficios), len(condicoes)) * 11 + 6)
+    pdf.set_xy(10, y_texto + max(len(beneficios), len(condicoes)) * 10 + 6)
 
     pdf.set_font(f, 'B', 11)
     pdf.set_text_color(*COR_AZUL_CARRERA)
