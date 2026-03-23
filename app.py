@@ -112,7 +112,7 @@ try:
 
     st.divider()
 
-    if st.button("🚀 Gerar PDF Premium", use_container_width=True):
+    if st.button("🚀 Gerar PDF da proposta", use_container_width=True):
         progress_bar = progress_container.progress(0, text="Iniciando geração...")
 
         import time
@@ -139,7 +139,7 @@ try:
         st.download_button(
             "📥 Baixar PDF",
             data=pdf,
-            file_name=f"Proposta_{cliente}.pdf",
+            file_name=f"Proposta Carrera Signature - {cliente}.pdf",
             mime="application/pdf",
             use_container_width=True
         )
