@@ -1,20 +1,17 @@
 import streamlit as st
 import pandas as pd
 from pdf_generator import gerar_pdf
+import time
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="Gerador de Propostas",
     page_icon="favicon.png",
     layout="wide",
-    menu_items={
-        "Get Help": None,
-        "Report a bug": None,
-        "About": None
-    }
+    initial_sidebar_state="expanded"
 )
 
-# --- ESCONDER MENU E FOOTER ---
+# --- ESCONDER MENU E FOOTER (SEM REMOVER HEADER) ---
 hide_st_style = """
 <style>
 #MainMenu {visibility: hidden;}
@@ -23,14 +20,42 @@ footer {visibility: hidden;}
 """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# --- GOOGLE SHEETS ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1PfEemQ0vJ4TlS-q-x9hfU-IK1AqUVPun8It_Wi7pzgE/export?format=csv&gid=2034069788"
+# --- SEGMENTOS (BASES) ---
+SEGMENTOS = {
+    "Sign & Drive": {
+        "url": "https://docs.google.com/spreadsheets/d/1PfEemQ0vJ4TlS-q-x9hfU-IK1AqUVPun8It_Wi7pzgE/export?format=csv&gid=2034069788",
+    },
+    "Sign & Drive Empresas": {
+        "url": "https://docs.google.com/spreadsheets/d/1puuB21uOsC8-UXe4MpuGE_oSpgyj-tyoihT6u68InMk/export?format=csv&gid=0",
+    },
+    "Assine Car GWM": {
+        "url": "https://docs.google.com/spreadsheets/d/1zJB5EBhtB78RtJhqHSP6OQDX1_s0wrmMsz1C_tUKsMI/export?format=csv&gid=1332991446",
+    },
+    "GAC Go and Drive": {
+        "url": "https://docs.google.com/spreadsheets/d/1xvD_QyO9opePn2X-Z2fHZGySOPm9AgQ7EbUcwoddjPo/export?format=csv&gid=676006877",
+    },
+    "Assine Car One": {
+        "url": "https://docs.google.com/spreadsheets/d/1FgVXCyGyhqXyeXz3cYePDSZjRGgmJu9Jj6rAmasjeQQ/export?format=csv&gid=676006877",
+    },
+    "Nissan Move": {
+        "url": "https://docs.google.com/spreadsheets/d/1pmK--_5SGVKW-LRXUK7TIjptP5DNxfYQMHS-cXA_rzw/export?format=csv&gid=1044813671",
+    },
+    "Assine Car Multbrand": {
+        "url": "https://docs.google.com/spreadsheets/d/1l6exo6brmYVMm-16zhIt7MDiJp7YxGrGZd2-kYk4a7k/export?format=csv&gid=1489579420",
+    },
+    "GM Fleet Rede": {
+        "url": "https://docs.google.com/spreadsheets/d/1AZiK2C7FjZ_-lNSJ-3fICfWB7hzRnEU8a_WCGgmubak/export?format=csv&gid=1332991446",
+    },
+    "GM Fleet PF (Estoque)": {
+        "url": "https://docs.google.com/spreadsheets/d/153a41nRCYW65S1AtODo3u9aIJp2co20K2lAexpYHoGc/export?format=csv&gid=1332991446",
+    }
+}
 
-@st.cache_data
-def carregar_dados():
-    df = pd.read_csv(SHEET_URL)
+# --- FUNÇÃO DE CARREGAMENTO ---
+@st.cache_data(ttl=600)
+def carregar_dados(url):
+    df = pd.read_csv(url)
 
-    # 🔥 NORMALIZAÇÃO (RESOLVE O "SOB CONSULTA")
     df.columns = (
         df.columns
         .str.strip()
@@ -43,29 +68,29 @@ def carregar_dados():
 
     return df
 
+
 # --- SIDEBAR ---
 with st.sidebar:
     st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=200)
+
     vendedor = st.text_input("Consultor", "")
     cliente = st.text_input("Cliente", "")
-    # --- SELEÇÃO DE QUANTIDADE ---
+
     qtd = st.selectbox(
         "Quantas ofertas deseja montar?",
         [3, 2, 1]
     )
-    # --- BARRA DE PROGRESSO ---
-    progress_container = st.sidebar.empty()
+
+    progress_container = st.empty()
 
 
 # --- TÍTULO ---
 st.title("🚗 Gerador de Propostas da Carrera Signature")
 
-# --- CARREGAR DADOS ---
+# --- CONSTRUÇÃO DAS OFERTAS ---
 try:
-    df = carregar_dados()
-
     cotacoes = []
-    cols = st.columns(3)  # 👈 mantém layout original
+    cols = st.columns(3)
 
     for i in range(3):
         with cols[i]:
@@ -73,20 +98,41 @@ try:
 
                 st.subheader(f"Oferta {i+1}:")
 
+                # 🔥 SEGMENTO POR OFERTA
+                segmento = st.selectbox(
+                    "Segmento",
+                    sorted(SEGMENTOS.keys()),
+                    key=f"segmento_{i}"
+                )
+
+                # 🔥 CARREGA BASE
+                df = carregar_dados(SEGMENTOS[segmento]["url"])
+
+                # 🔥 VEÍCULO
                 veiculo = st.selectbox(
                     "Veículo",
-                    df['nome'].unique(),
+                    df['nome'].dropna().unique(),
                     key=f"veiculo_{i}"
                 )
 
                 dados = df[df['nome'] == veiculo].iloc[0]
 
-                st.image(dados['imagem'], use_container_width=True)
+                # IMAGEM
+                if 'imagem' in df.columns:
+                    st.image(dados['imagem'], use_container_width=True)
 
-                prazo = st.selectbox("Prazo", [12, 18, 24, 36], key=f"prazo_{i}")
-                km = st.selectbox("KM", [500, 1000, 1500, 2000], key=f"km_{i}")
+                # 🔥 REGRAS POR SEGMENTO
+                if "Fleet" in segmento:
+                    prazos = [12, 24, 36, 48]
+                    kms = [1000, 2000, 3000]
+                else:
+                    prazos = [12, 18, 24, 36]
+                    kms = [500, 1000, 1500, 2000]
 
-                # 🔥 BUSCA DO PREÇO (AGORA FUNCIONA)
+                prazo = st.selectbox("Prazo", prazos, key=f"prazo_{i}")
+                km = st.selectbox("KM", kms, key=f"km_{i}")
+
+                # 🔥 BUSCA PREÇO
                 col_preco = f"preco{km}{prazo}"
 
                 if col_preco in df.columns:
@@ -99,41 +145,38 @@ try:
                 st.success(f"{valor_limpo}")
 
                 cotacoes.append({
+                    "segmento": segmento,
                     "modelo": veiculo,
                     "prazo": prazo,
                     "km": km,
                     "valor": valor_limpo,
-                    "url_foto": dados['imagem']
+                    "url_foto": dados.get('imagem', '')
                 })
 
             else:
-                st.empty()  # mantém alinhamento visual
+                st.empty()
 
     st.divider()
 
+    # --- GERAR PDF ---
     if st.button("🚀 Gerar PDF da proposta", use_container_width=True):
-        progress_bar = progress_container.progress(0, text="Iniciando geração...")
 
-        import time
+        progress_bar = progress_container.progress(0, text="Iniciando...")
 
-        # Simulação de etapas
-        progress_bar.progress(10, text="Preparando dados...")
+        progress_bar.progress(20, text="Preparando dados...")
         time.sleep(0.2)
 
-        progress_bar.progress(30, text="Montando ofertas...")
+        progress_bar.progress(40, text="Montando ofertas...")
         time.sleep(0.2)
 
-        progress_bar.progress(50, text="Carregando imagens...")
+        progress_bar.progress(60, text="Carregando imagens...")
         time.sleep(0.2)
 
-        progress_bar.progress(70, text="Gerando PDF...")
-    
+        progress_bar.progress(80, text="Gerando PDF...")
+
         pdf = gerar_pdf(cliente, vendedor, cotacoes)
 
-        progress_bar.progress(90, text="Finalizando...")
-        time.sleep(0.2)
-
-        progress_bar.progress(100, text="Pronto!")
+        progress_bar.progress(100, text="Finalizado!")
 
         st.download_button(
             "📥 Baixar PDF",
@@ -143,7 +186,6 @@ try:
             use_container_width=True
         )
 
-
 except Exception as e:
-    st.error("❌ Erro ao carregar dados da planilha.")
+    st.error("❌ Erro ao carregar dados.")
     st.exception(e)
