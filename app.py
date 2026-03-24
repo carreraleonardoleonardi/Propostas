@@ -46,8 +46,12 @@ SEGMENTOS = {
     "GM Fleet Rede": {
         "url": "https://docs.google.com/spreadsheets/d/1AZiK2C7FjZ_-lNSJ-3fICfWB7hzRnEU8a_WCGgmubak/export?format=csv&gid=1332991446",
     },
-    "GM Fleet PF (Estoque)": {
+    "GM Fleet (Estoque)": {
         "url": "https://docs.google.com/spreadsheets/d/153a41nRCYW65S1AtODo3u9aIJp2co20K2lAexpYHoGc/export?format=csv&gid=1332991446",
+    },
+
+    "GM Fleet - Eletricos": {
+        "url": "https://docs.google.com/spreadsheets/d/1-Tnbo6s8QXew8gz8xAWwklusMgtB3KbfRU9DYuA90NI/export?format=csv&gid=1332991446",
     }
 }
 
