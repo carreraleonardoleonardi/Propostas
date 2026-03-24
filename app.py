@@ -124,7 +124,7 @@ try:
                 # 🔥 REGRAS POR SEGMENTO
                 if "Fleet" in segmento:
                     prazos = [12, 24, 36, 48]
-                    kms = [1000, 2000, 3000]
+                    kms = [500, 1000, 1500, 2000, 2500, 3000]
                 else:
                     prazos = [12, 18, 24, 36]
                     kms = [500, 1000, 1500, 2000]
