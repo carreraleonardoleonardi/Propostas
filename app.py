@@ -151,8 +151,8 @@ with tab1:
 
                 st.image(dados['imagem'], use_container_width=True)
 
-                prazo = st.selectbox("Prazo", [12, 18, 24, 36], key=f"prazo_{i}")
-                km = st.selectbox("KM", [500, 1000, 1500, 2000], key=f"km_{i}")
+                prazo = st.selectbox("Prazo", [12, 18, 24, 36, 48], key=f"prazo_{i}")
+                km = st.selectbox("KM", [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000], key=f"km_{i}")
 
                 col_preco = f"preco{km}{prazo}"
 
