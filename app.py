@@ -1,63 +1,50 @@
 import streamlit as st
 import pandas as pd
-from pdf_generator import gerar_pdf
+import requests
+import json
+import datetime
 import time
+from pdf_generator import gerar_pdf
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
+# --- CONFIG ---
 st.set_page_config(
     page_title="Gerador de Propostas",
-    page_icon="favicon.png",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_icon="📊",
+    layout="wide"
 )
 
-# --- ESCONDER MENU E FOOTER (SEM REMOVER HEADER) ---
-hide_st_style = """
+# --- ESCONDER MENU ---
+st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
+header {visibility: hidden;}
 </style>
-"""
-st.markdown(hide_st_style, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# --- SEGMENTOS (BASES) ---
-SEGMENTOS = {
-    "Sign & Drive": {
-        "url": "https://docs.google.com/spreadsheets/d/1PfEemQ0vJ4TlS-q-x9hfU-IK1AqUVPun8It_Wi7pzgE/export?format=csv&gid=2034069788",
-    },
-    "Sign & Drive Empresas": {
-        "url": "https://docs.google.com/spreadsheets/d/1puuB21uOsC8-UXe4MpuGE_oSpgyj-tyoihT6u68InMk/export?format=csv&gid=0",
-    },
-    "Assine Car GWM": {
-        "url": "https://docs.google.com/spreadsheets/d/1zJB5EBhtB78RtJhqHSP6OQDX1_s0wrmMsz1C_tUKsMI/export?format=csv&gid=1332991446",
-    },
-    "GAC Go and Drive": {
-        "url": "https://docs.google.com/spreadsheets/d/1xvD_QyO9opePn2X-Z2fHZGySOPm9AgQ7EbUcwoddjPo/export?format=csv&gid=676006877",
-    },
-    "Assine Car One": {
-        "url": "https://docs.google.com/spreadsheets/d/1FgVXCyGyhqXyeXz3cYePDSZjRGgmJu9Jj6rAmasjeQQ/export?format=csv&gid=676006877",
-    },
-    "Nissan Move": {
-        "url": "https://docs.google.com/spreadsheets/d/1pmK--_5SGVKW-LRXUK7TIjptP5DNxfYQMHS-cXA_rzw/export?format=csv&gid=1044813671",
-    },
-    "Assine Car Multbrand": {
-        "url": "https://docs.google.com/spreadsheets/d/1l6exo6brmYVMm-16zhIt7MDiJp7YxGrGZd2-kYk4a7k/export?format=csv&gid=1489579420",
-    },
-    "GM Fleet Rede": {
-        "url": "https://docs.google.com/spreadsheets/d/1AZiK2C7FjZ_-lNSJ-3fICfWB7hzRnEU8a_WCGgmubak/export?format=csv&gid=1332991446",
-    },
-    "GM Fleet (Estoque)": {
-        "url": "https://docs.google.com/spreadsheets/d/153a41nRCYW65S1AtODo3u9aIJp2co20K2lAexpYHoGc/export?format=csv&gid=1332991446",
-    },
+# --- WEBHOOK ---
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxzzTh8nlzwFmAdrB7-qXrhUiEeWGGOwH7ZGAuQeaGZHcTVRa1jASmrpU-ADQcCLZgTKw/exec"
 
-    "GM Fleet - Eletricos": {
-        "url": "https://docs.google.com/spreadsheets/d/1-Tnbo6s8QXew8gz8xAWwklusMgtB3KbfRU9DYuA90NI/export?format=csv&gid=1332991446",
-    }
+# --- PLANILHA RELATÓRIO ---
+URL_RELATORIO = "https://docs.google.com/spreadsheets/d/1bxjKSfD2MpBpV4swaBCjkhi8ElHV_8M97zxI6jgtv0w/export?format=csv"
+
+# --- BASES ---
+BASES = {
+    "Sign & Drive": "https://docs.google.com/spreadsheets/d/1PfEemQ0vJ4TlS-q-x9hfU-IK1AqUVPun8It_Wi7pzgE/export?format=csv&gid=2034069788",
+    "Sign & Drive Empresas": "https://docs.google.com/spreadsheets/d/1puuB21uOsC8-UXe4MpuGE_oSpgyj-tyoihT6u68InMk/export?format=csv",
+    "Assine Car GWM": "https://docs.google.com/spreadsheets/d/1zJB5EBhtB78RtJhqHSP6OQDX1_s0wrmMsz1C_tUKsMI/export?format=csv&gid=1332991446",
+    "GAC Go and Drive": "https://docs.google.com/spreadsheets/d/1xvD_QyO9opePn2X-Z2fHZGySOPm9AgQ7EbUcwoddjPo/export?format=csv&gid=676006877",
+    "Assine Car One": "https://docs.google.com/spreadsheets/d/1FgVXCyGyhqXyeXz3cYePDSZjRGgmJu9Jj6rAmasjeQQ/export?format=csv&gid=676006877",
+    "Nissan Move": "https://docs.google.com/spreadsheets/d/1pmK--_5SGVKW-LRXUK7TIjptP5DNxfYQMHS-cXA_rzw/export?format=csv&gid=1044813671",
+    "Assine Car Multbrand": "https://docs.google.com/spreadsheets/d/1l6exo6brmYVMm-16zhIt7MDiJp7YxGrGZd2-kYk4a7k/export?format=csv&gid=1489579420",
+    "GM Fleet Rede": "https://docs.google.com/spreadsheets/d/1AZiK2C7FjZ_-lNSJ-3fICfWB7hzRnEU8a_WCGgmubak/export?format=csv&gid=1332991446",
+    "GM Fleet PF": "https://docs.google.com/spreadsheets/d/153a41nRCYW65S1AtODo3u9aIJp2co20K2lAexpYHoGc/export?format=csv&gid=1332991446",
+    "GM Fleet Elétricos": "https://docs.google.com/spreadsheets/d/1-Tnbo6s8QXew8gz8xAWwklusMgtB3KbfRU9DYuA90NI/export?format=csv&gid=1332991446"
 }
 
-# --- FUNÇÃO DE CARREGAMENTO ---
-@st.cache_data(ttl=600)
-def carregar_dados(url):
+# --- FUNÇÕES ---
+@st.cache_data
+def carregar_base(url):
     df = pd.read_csv(url)
 
     df.columns = (
@@ -73,26 +60,80 @@ def carregar_dados(url):
     return df
 
 
+@st.cache_data
+def carregar_relatorio():
+    df = pd.read_csv(URL_RELATORIO)
+
+    df.columns = [
+        "data", "proposta_id", "consultor", "cliente",
+        "segmento", "modelo", "prazo", "km", "valor"
+    ]
+
+    df["data"] = pd.to_datetime(df["data"], errors="coerce")
+
+    df["valor"] = (
+        df["valor"].astype(str)
+        .str.replace("R$", "")
+        .str.replace(".", "")
+        .str.replace(",", ".")
+    )
+
+    df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+
+    return df
+
+
+def salvar_proposta(cotacoes, vendedor, cliente):
+    proposta_id = "CS" + datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
+    for c in cotacoes:
+        payload = {
+            "consultor": vendedor,
+            "cliente": cliente,
+            "segmento": c["segmento"],
+            "modelo": c["modelo"],
+            "prazo": c["prazo"],
+            "km": c["km"],
+            "valor": c["valor"],
+            "proposta_id": proposta_id
+        }
+
+        try:
+            requests.post(
+                WEBHOOK_URL,
+                data=json.dumps(payload),
+                headers={"Content-Type": "text/plain"}
+            )
+        except Exception as e:
+            st.error(f"Erro ao salvar: {e}")
+
+    return proposta_id
+
+
 # --- SIDEBAR ---
 with st.sidebar:
-    st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=200)
+    st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=180)
 
-    vendedor = st.text_input("Consultor", "")
-    cliente = st.text_input("Cliente", "")
+    st.markdown("### 👤 Dados da Proposta")
+    vendedor = st.text_input("Consultor")
+    cliente = st.text_input("Cliente")
 
-    qtd = st.selectbox(
-        "Quantas ofertas deseja montar?",
-        [3, 2, 1]
-    )
+    qtd = st.selectbox("Qtd ofertas", [1, 2, 3], index=2)
 
     progress_container = st.empty()
 
 
-# --- TÍTULO ---
-st.title("🚗 Gerador de Propostas da Carrera Signature")
+# --- ABAS ---
+tab1, tab2 = st.tabs(["🚗 Propostas", "📊 Relatório"])
 
-# --- CONSTRUÇÃO DAS OFERTAS ---
-try:
+
+# =============================
+# 🚗 PROPOSTAS
+# =============================
+with tab1:
+
+    st.title("🚗 Gerador de Propostas da Carrera Signature")
+
     cotacoes = []
     cols = st.columns(3)
 
@@ -100,96 +141,116 @@ try:
         with cols[i]:
             if i < qtd:
 
-                st.subheader(f"Oferta {i+1}:")
+                st.subheader(f"Oferta {i+1}")
 
-                # 🔥 SEGMENTO POR OFERTA
-                segmento = st.selectbox(
-                    "Segmento",
-                    sorted(SEGMENTOS.keys()),
-                    key=f"segmento_{i}"
-                )
+                segmento = st.selectbox("Segmento", list(BASES.keys()), key=f"seg_{i}")
+                df = carregar_base(BASES[segmento])
 
-                # 🔥 CARREGA BASE
-                df = carregar_dados(SEGMENTOS[segmento]["url"])
-
-                # 🔥 VEÍCULO
-                veiculo = st.selectbox(
-                    "Veículo",
-                    df['nome'].dropna().unique(),
-                    key=f"veiculo_{i}"
-                )
-
+                veiculo = st.selectbox("Veículo", df['nome'].dropna().unique(), key=f"vei_{i}")
                 dados = df[df['nome'] == veiculo].iloc[0]
 
-                # IMAGEM
-                if 'imagem' in df.columns:
-                    st.image(dados['imagem'], use_container_width=True)
+                st.image(dados['imagem'], use_container_width=True)
 
-                # 🔥 REGRAS POR SEGMENTO
-                if "Fleet" in segmento:
-                    prazos = [12, 18, 24, 36, 48]
-                    kms = [500, 1000, 1500, 2000, 2500, 3000]
-                else:
-                    prazos = [12, 18, 24, 36, 48]
-                    kms = [500, 1000, 1500, 2000, 2500, 3000]
+                prazo = st.selectbox("Prazo", [12, 18, 24, 36], key=f"prazo_{i}")
+                km = st.selectbox("KM", [500, 1000, 1500, 2000], key=f"km_{i}")
 
-                prazo = st.selectbox("Prazo", prazos, key=f"prazo_{i}")
-                km = st.selectbox("KM", kms, key=f"km_{i}")
-
-                # 🔥 BUSCA PREÇO
                 col_preco = f"preco{km}{prazo}"
 
-                if col_preco in df.columns:
-                    valor = dados[col_preco]
-                else:
-                    valor = "Sob consulta"
+                valor = dados[col_preco] if col_preco in df.columns else "Sob consulta"
 
-                valor_limpo = str(valor).strip()
-
-                st.success(f"{valor_limpo}")
+                st.success(str(valor))
 
                 cotacoes.append({
                     "segmento": segmento,
                     "modelo": veiculo,
                     "prazo": prazo,
                     "km": km,
-                    "valor": valor_limpo,
-                    "url_foto": dados.get('imagem', '')
+                    "valor": str(valor),
+                    "url_foto": dados['imagem']
                 })
-
-            else:
-                st.empty()
 
     st.divider()
 
-    # --- GERAR PDF ---
     if st.button("🚀 Gerar PDF da proposta", use_container_width=True):
 
-        progress_bar = progress_container.progress(0, text="Iniciando...")
+        progress = progress_container.progress(0, text="Iniciando...")
 
-        progress_bar.progress(20, text="Preparando dados...")
-        time.sleep(0.2)
+        progress.progress(30, text="Salvando proposta...")
+        proposta_id = salvar_proposta(cotacoes, vendedor, cliente)
 
-        progress_bar.progress(40, text="Montando ofertas...")
-        time.sleep(0.2)
+        time.sleep(0.3)
 
-        progress_bar.progress(60, text="Carregando imagens...")
-        time.sleep(0.2)
-
-        progress_bar.progress(80, text="Gerando PDF...")
-
+        progress.progress(70, text="Gerando PDF...")
         pdf = gerar_pdf(cliente, vendedor, cotacoes)
 
-        progress_bar.progress(100, text="Finalizado!")
+        time.sleep(0.3)
+
+        progress.progress(100, text="Finalizado!")
+
+        st.success(f"Proposta gerada: {proposta_id}")
 
         st.download_button(
             "📥 Baixar PDF",
             data=pdf,
-            file_name=f"Proposta Carrera Signature - {cliente}.pdf",
+            file_name=f"{proposta_id}.pdf",
             mime="application/pdf",
             use_container_width=True
         )
 
-except Exception as e:
-    st.error("❌ Erro ao carregar dados.")
-    st.exception(e)
+
+# =============================
+# 📊 RELATÓRIO
+# =============================
+with tab2:
+
+    st.title("📊 Dashboard")
+
+    df = carregar_relatorio()
+
+    if df.empty:
+        st.warning("Sem dados ainda...")
+        st.stop()
+
+    # --- FILTROS ---
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        data_inicio = st.date_input("Data início", df["data"].min())
+
+    with col2:
+        data_fim = st.date_input("Data fim", df["data"].max())
+
+    with col3:
+        consultor = st.selectbox("Consultor", ["Todos"] + list(df["consultor"].dropna().unique()))
+
+    df_filtro = df[
+        (df["data"] >= pd.to_datetime(data_inicio)) &
+        (df["data"] <= pd.to_datetime(data_fim))
+    ]
+
+    if consultor != "Todos":
+        df_filtro = df_filtro[df_filtro["consultor"] == consultor]
+
+    # --- KPIs ---
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Propostas", df_filtro["proposta_id"].nunique())
+    col2.metric("Veículos", len(df_filtro))
+    col3.metric("Ticket Médio", f"R$ {df_filtro['valor'].mean():,.0f}" if not df_filtro.empty else "-")
+    col4.metric("Top Consultor", df_filtro["consultor"].mode()[0] if not df_filtro.empty else "-")
+
+    st.divider()
+
+    # --- GRÁFICOS ---
+    st.subheader("📈 Propostas por dia")
+    df_dia = df_filtro.groupby(df_filtro["data"].dt.date)["proposta_id"].nunique()
+    st.line_chart(df_dia)
+
+    st.subheader("🏆 Ranking Consultores")
+    st.bar_chart(df_filtro["consultor"].value_counts())
+
+    st.subheader("🚗 Segmentos")
+    st.bar_chart(df_filtro["segmento"].value_counts())
+
+    st.subheader("🔥 Modelos mais ofertados")
+    st.bar_chart(df_filtro["modelo"].value_counts())
