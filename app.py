@@ -18,7 +18,6 @@ st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -42,7 +41,10 @@ BASES = {
     "GM Fleet Elétricos": "https://docs.google.com/spreadsheets/d/1-Tnbo6s8QXew8gz8xAWwklusMgtB3KbfRU9DYuA90NI/export?format=csv&gid=1332991446"
 }
 
-# --- FUNÇÕES ---
+# =========================
+# FUNÇÕES
+# =========================
+
 @st.cache_data
 def carregar_base(url):
     df = pd.read_csv(url)
@@ -64,21 +66,40 @@ def carregar_base(url):
 def carregar_relatorio():
     df = pd.read_csv(URL_RELATORIO)
 
-    df.columns = [
+    # 🔥 REMOVE COLUNAS DUPLICADAS
+    df = df.loc[:, ~df.columns.duplicated()]
+
+    # 🔥 PADRONIZA NOMES
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+        .str.normalize('NFKD')
+        .str.encode('ascii', errors='ignore')
+        .str.decode('utf-8')
+        .str.replace(" ", "")
+    )
+
+    # 🔥 GARANTE ESTRUTURA CORRETA
+    colunas_esperadas = [
         "data", "proposta_id", "consultor", "cliente",
         "segmento", "modelo", "prazo", "km", "valor"
     ]
 
-    df["data"] = pd.to_datetime(df["data"], errors="coerce")
+    df = df[[c for c in colunas_esperadas if c in df.columns]]
 
-    df["valor"] = (
-        df["valor"].astype(str)
-        .str.replace("R$", "")
-        .str.replace(".", "")
-        .str.replace(",", ".")
-    )
+    # --- TRATAMENTOS ---
+    if "data" in df.columns:
+        df["data"] = pd.to_datetime(df["data"], errors="coerce")
 
-    df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+    if "valor" in df.columns:
+        df["valor"] = (
+            df["valor"].astype(str)
+            .str.replace("R$", "", regex=False)
+            .str.replace(".", "", regex=False)
+            .str.replace(",", ".", regex=False)
+        )
+        df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
 
     return df
 
@@ -110,7 +131,9 @@ def salvar_proposta(cotacoes, vendedor, cliente):
     return proposta_id
 
 
-# --- SIDEBAR ---
+# =========================
+# SIDEBAR
+# =========================
 with st.sidebar:
     st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=180)
 
@@ -123,13 +146,15 @@ with st.sidebar:
     progress_container = st.empty()
 
 
-# --- ABAS ---
+# =========================
+# ABAS
+# =========================
 tab1, tab2 = st.tabs(["🚗 Propostas", "📊 Relatório"])
 
 
-# =============================
+# =========================
 # 🚗 PROPOSTAS
-# =============================
+# =========================
 with tab1:
 
     st.title("🚗 Gerador de Propostas da Carrera Signature")
@@ -152,10 +177,9 @@ with tab1:
                 st.image(dados['imagem'], use_container_width=True)
 
                 prazo = st.selectbox("Prazo", [12, 18, 24, 36, 48], key=f"prazo_{i}")
-                km = st.selectbox("KM", [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000], key=f"km_{i}")
+                km = st.selectbox("KM", [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000], key=f"km_{i}")
 
                 col_preco = f"preco{km}{prazo}"
-
                 valor = dados[col_preco] if col_preco in df.columns else "Sob consulta"
 
                 st.success(str(valor))
@@ -187,20 +211,20 @@ with tab1:
 
         progress.progress(100, text="Finalizado!")
 
-        st.success(f"Proposta gerada: {proposta_id}")
+        st.success(f"Proposta gerada: {cliente} - {proposta_id}")
 
         st.download_button(
             "📥 Baixar PDF",
             data=pdf,
-            file_name=f"{proposta_id}.pdf",
+            file_name=f"Proposta Carrera Signature - {cliente}.pdf",
             mime="application/pdf",
             use_container_width=True
         )
 
 
-# =============================
+# =========================
 # 📊 RELATÓRIO
-# =============================
+# =========================
 with tab2:
 
     st.title("📊 Dashboard")
