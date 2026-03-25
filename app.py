@@ -166,7 +166,7 @@ with tab1:
         with cols[i]:
             if i < qtd:
 
-                st.subheader(f"Oferta {i+1}")
+                st.subheader(f"Oferta {i+1}:")
 
                 segmento = st.selectbox("Segmento", list(BASES.keys()), key=f"seg_{i}")
                 df = carregar_base(BASES[segmento])
