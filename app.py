@@ -9,7 +9,7 @@ from pdf_generator import gerar_pdf
 # --- CONFIG ---
 st.set_page_config(
     page_title="Gerador de Propostas",
-    page_icon="📊",
+    page_icon="🚗",
     layout="wide"
 )
 
