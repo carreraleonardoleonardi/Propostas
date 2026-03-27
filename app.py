@@ -193,7 +193,6 @@ with tab1:
 
     if st.button("🚀 Gerar PDF da proposta", use_container_width=True):
 
-        # 🔒 VALIDAÇÃO
         if not vendedor or not cliente:
             st.error("⚠️ Preencha os campos obrigatórios: Consultor e Cliente.")
             st.stop()
@@ -228,9 +227,25 @@ with tab1:
 # =========================
 with tab2:
 
-    st.title("📊 Dashboard")
+    col_title, col_btn = st.columns([6,1])
+
+    with col_title:
+        st.title("📊 Dashboard")
+
+        if "ultima_atualizacao" in st.session_state:
+            st.caption(
+                f"Última atualização: {st.session_state['ultima_atualizacao'].strftime('%H:%M:%S')}"
+            )
+
+    with col_btn:
+        if st.button("🔄 Atualizar"):
+            carregar_relatorio.clear()
+            st.rerun()
 
     df = carregar_relatorio()
+
+    # ⏱️ salva horário da atualização
+    st.session_state["ultima_atualizacao"] = datetime.datetime.now()
 
     if df.empty:
         st.warning("Sem dados ainda...")
