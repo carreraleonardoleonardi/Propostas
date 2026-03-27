@@ -66,10 +66,8 @@ def carregar_base(url):
 def carregar_relatorio():
     df = pd.read_csv(URL_RELATORIO)
 
-    # 🔥 REMOVE COLUNAS DUPLICADAS
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # 🔥 PADRONIZA NOMES
     df.columns = (
         df.columns
         .str.strip()
@@ -80,7 +78,6 @@ def carregar_relatorio():
         .str.replace(" ", "")
     )
 
-    # 🔥 GARANTE ESTRUTURA CORRETA
     colunas_esperadas = [
         "data", "proposta_id", "consultor", "cliente",
         "segmento", "modelo", "prazo", "km", "valor"
@@ -88,7 +85,6 @@ def carregar_relatorio():
 
     df = df[[c for c in colunas_esperadas if c in df.columns]]
 
-    # --- TRATAMENTOS ---
     if "data" in df.columns:
         df["data"] = pd.to_datetime(df["data"], errors="coerce")
 
@@ -138,8 +134,8 @@ with st.sidebar:
     st.image("https://i.postimg.cc/HWrrsnvR/LOGO-SIGNATURE-AZUL-E-DOURADO.png", width=180)
 
     st.markdown("### 👤 Dados da Proposta")
-    vendedor = st.text_input("Consultor")
-    cliente = st.text_input("Cliente")
+    vendedor = st.text_input("Consultor *")
+    cliente = st.text_input("Cliente *")
 
     qtd = st.selectbox("Qtd ofertas", [1, 2, 3], index=2)
 
@@ -197,6 +193,11 @@ with tab1:
 
     if st.button("🚀 Gerar PDF da proposta", use_container_width=True):
 
+        # 🔒 VALIDAÇÃO
+        if not vendedor or not cliente:
+            st.error("⚠️ Preencha os campos obrigatórios: Consultor e Cliente.")
+            st.stop()
+
         progress = progress_container.progress(0, text="Iniciando...")
 
         progress.progress(30, text="Salvando proposta...")
@@ -235,7 +236,6 @@ with tab2:
         st.warning("Sem dados ainda...")
         st.stop()
 
-    # --- FILTROS ---
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -255,7 +255,6 @@ with tab2:
     if consultor != "Todos":
         df_filtro = df_filtro[df_filtro["consultor"] == consultor]
 
-    # --- KPIs ---
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("Propostas", df_filtro["proposta_id"].nunique())
@@ -265,7 +264,6 @@ with tab2:
 
     st.divider()
 
-    # --- GRÁFICOS ---
     st.subheader("📈 Propostas por dia")
     df_dia = df_filtro.groupby(df_filtro["data"].dt.date)["proposta_id"].nunique()
     st.line_chart(df_dia)
