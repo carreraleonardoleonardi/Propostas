@@ -259,14 +259,14 @@ with tab2:
 
     col1.metric("Propostas", df_filtro["proposta_id"].nunique())
     col2.metric("Veículos", len(df_filtro))
-    col3.metric("Ticket Médio", f"R$ {df_filtro['valor'].mean():,.0f}" if not df_filtro.empty else "-")
-    col4.metric("Top Consultor", df_filtro["consultor"].mode()[0] if not df_filtro.empty else "-")
+    col3.metric("Top Consultor", df_filtro["consultor"].mode()[0] if not df_filtro.empty else "-")
+    col4.metric("Top Modelo", df_filtro["modelo"].mode()[0] if not df_filtro.empty else "-")
 
     st.divider()
 
     st.subheader("📈 Propostas por dia")
     df_dia = df_filtro.groupby(df_filtro["data"].dt.date)["proposta_id"].nunique()
-    st.line_chart(df_dia)
+    st.bar_chart(df_dia)
 
     st.subheader("🏆 Ranking Consultores")
     st.bar_chart(df_filtro["consultor"].value_counts())
@@ -275,4 +275,5 @@ with tab2:
     st.bar_chart(df_filtro["segmento"].value_counts())
 
     st.subheader("🔥 Modelos mais ofertados")
-    st.bar_chart(df_filtro["modelo"].value_counts())
+    df_carro = df_filtro.groupby("modelo")["proposta_id"].nunique().sort_values(ascending=False)
+    st.bar_chart(df_carro)
