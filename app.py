@@ -34,7 +34,6 @@ st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
 
 .block-container {
     padding-top: 2.0rem;
@@ -551,9 +550,7 @@ with tab3:
     if not status_sistema.get("ok"):
         st.error(f"Erro ao carregar status remoto: {status_sistema.get('erro', 'Erro desconhecido')}")
         st.stop()
-
-    st.markdown('<div class="status-card">', unsafe_allow_html=True)
-
+        
     col_status_1, col_status_2 = st.columns([1, 4])
 
     with col_status_1:
