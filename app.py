@@ -34,7 +34,6 @@ URL_RELATORIO = "https://docs.google.com/spreadsheets/d/1bxjKSfD2MpBpV4swaBCjkhi
 # =========================================================
 st.markdown("""
 <style>
-#MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 
 .block-container {
