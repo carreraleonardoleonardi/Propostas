@@ -4,7 +4,6 @@ import requests
 import json
 import datetime
 import time
-import os
 from pdf_generator import gerar_pdf
 
 # =========================================================
@@ -17,11 +16,16 @@ st.set_page_config(
 )
 
 # =========================================================
-# SENHAS MODO MANUTENÇÃO
+# CONFIGURAÇÕES VIA SECRETS
 # =========================================================
-SENHA_DESATIVAR = "DesativaSignature#2026"
-SENHA_ATIVAR = "AtivaSignature#2026"
-ARQUIVO_STATUS = "status_sistema.json"
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxzzTh8nlzwFmAdrB7-qXrhUiEeWGGOwH7ZGAuQeaGZHcTVRa1jASmrpU-ADQcCLZgTKw/exec"
+URL_RELATORIO = "https://docs.google.com/spreadsheets/d/1bxjKSfD2MpBpV4swaBCjkhi8ElHV_8M97zxI6jgtv0w/export?format=csv"
+
+ADMIN_PASSWORD_OFF = st.secrets["ADMIN_PASSWORD_OFF"]
+ADMIN_PASSWORD_ON = st.secrets["ADMIN_PASSWORD_ON"]
+ADMIN_API_TOKEN = st.secrets["ADMIN_API_TOKEN"]
+ADMIN_NOME_PADRAO = st.secrets.get("ADMIN_NOME_PADRAO", "")
+URL_GERENCIAMENTO = st.secrets["URL_GERENCIAMENTO"]
 
 # =========================================================
 # CSS GLOBAL
@@ -30,9 +34,10 @@ st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
+header {visibility: hidden;}
 
 .block-container {
-    padding-top: 1.5rem;
+    padding-top: 2.0rem;
 }
 
 .manutencao-wrapper {
@@ -75,14 +80,22 @@ footer {visibility: hidden;}
     box-shadow: 0 8px 24px rgba(0,0,0,0.06);
     margin-bottom: 20px;
 }
+
+.status-card {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+    margin-bottom: 20px;
+}
+
+.small-muted {
+    color: #6B7280;
+    font-size: 0.92rem;
+}
 </style>
 """, unsafe_allow_html=True)
-
-# =========================================================
-# WEBHOOK / PLANILHA RELATÓRIO
-# =========================================================
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxzzTh8nlzwFmAdrB7-qXrhUiEeWGGOwH7ZGAuQeaGZHcTVRa1jASmrpU-ADQcCLZgTKw/exec"
-URL_RELATORIO = "https://docs.google.com/spreadsheets/d/1bxjKSfD2MpBpV4swaBCjkhi8ElHV_8M97zxI6jgtv0w/export?format=csv"
 
 # =========================================================
 # BASES
@@ -113,23 +126,64 @@ if "abrir_confirmacao_reativar" not in st.session_state:
 if "ultima_atualizacao" not in st.session_state:
     st.session_state["ultima_atualizacao"] = None
 
-# =========================================================
-# FUNÇÕES - STATUS DO SISTEMA
-# =========================================================
-def salvar_status_manutencao(status: bool) -> None:
-    with open(ARQUIVO_STATUS, "w", encoding="utf-8") as f:
-        json.dump({"modo_manutencao": status}, f, ensure_ascii=False, indent=4)
+if "painel_admin_liberado" not in st.session_state:
+    st.session_state["painel_admin_liberado"] = False
 
-def carregar_status_manutencao() -> bool:
-    if not os.path.exists(ARQUIVO_STATUS):
-        salvar_status_manutencao(False)
-
+# =========================================================
+# FUNÇÕES - GERENCIAMENTO REMOTO (GOOGLE SHEETS / APPS SCRIPT)
+# =========================================================
+@st.cache_data(ttl=10)
+def carregar_status_remoto():
     try:
-        with open(ARQUIVO_STATUS, "r", encoding="utf-8") as f:
-            dados = json.load(f)
-            return bool(dados.get("modo_manutencao", False))
-    except Exception:
-        return False
+        resposta = requests.get(
+            URL_GERENCIAMENTO,
+            params={"token": ADMIN_API_TOKEN},
+            timeout=20
+        )
+        dados = resposta.json()
+
+        if dados.get("ok"):
+            return dados
+
+        return {
+            "ok": False,
+            "modo_manutencao": False,
+            "atualizado_em": "",
+            "atualizado_por": "",
+            "logs": [],
+            "erro": dados.get("erro", "Erro desconhecido")
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "modo_manutencao": False,
+            "atualizado_em": "",
+            "atualizado_por": "",
+            "logs": [],
+            "erro": str(e)
+        }
+
+
+def alterar_status_remoto(acao, responsavel, detalhe=""):
+    try:
+        payload = {
+            "token": ADMIN_API_TOKEN,
+            "acao": acao,
+            "responsavel": responsavel,
+            "detalhe": detalhe
+        }
+
+        resposta = requests.post(
+            URL_GERENCIAMENTO,
+            json=payload,
+            timeout=20
+        )
+
+        return resposta.json()
+
+    except Exception as e:
+        return {"ok": False, "erro": str(e)}
 
 # =========================================================
 # FUNÇÕES - DADOS
@@ -149,6 +203,7 @@ def carregar_base(url):
     )
 
     return df
+
 
 @st.cache_data
 def carregar_relatorio():
@@ -188,6 +243,7 @@ def carregar_relatorio():
 
     return df
 
+
 def salvar_proposta(cotacoes, vendedor, cliente):
     proposta_id = "CS" + datetime.datetime.now().strftime("%Y%m%d%H%M%S")
 
@@ -216,9 +272,10 @@ def salvar_proposta(cotacoes, vendedor, cliente):
     return proposta_id
 
 # =========================================================
-# STATUS ATUAL
+# STATUS ATUAL DO SISTEMA
 # =========================================================
-modo_manutencao = carregar_status_manutencao()
+status_sistema = carregar_status_remoto()
+modo_manutencao = status_sistema.get("modo_manutencao", False)
 
 # =========================================================
 # SIDEBAR
@@ -257,7 +314,13 @@ if modo_manutencao:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("### 🔓 Reativar sistema")
+    st.subheader("🔓 Reativar sistema")
+
+    responsavel_reativar = st.text_input(
+        "Nome do responsável",
+        value=ADMIN_NOME_PADRAO,
+        key="responsavel_reativar"
+    )
 
     if st.button("🟢 Reativar sistema", use_container_width=True):
         st.session_state.abrir_confirmacao_reativar = True
@@ -273,11 +336,20 @@ if modo_manutencao:
 
         with col_a:
             if st.button("Confirmar reativação", use_container_width=True, key="confirmar_reativar"):
-                if senha_ativar == SENHA_ATIVAR:
-                    salvar_status_manutencao(False)
-                    st.session_state.abrir_confirmacao_reativar = False
-                    st.success("Sistema reativado com sucesso.")
-                    st.rerun()
+                if senha_ativar == ADMIN_PASSWORD_ON:
+                    retorno = alterar_status_remoto(
+                        acao="desativar_manutencao",
+                        responsavel=responsavel_reativar or ADMIN_NOME_PADRAO or "Administrador",
+                        detalhe="Sistema reativado via tela de manutenção"
+                    )
+
+                    if retorno.get("ok"):
+                        carregar_status_remoto.clear()
+                        st.session_state.abrir_confirmacao_reativar = False
+                        st.success("Sistema reativado com sucesso.")
+                        st.rerun()
+                    else:
+                        st.error(f"Erro ao reativar: {retorno.get('erro', 'Erro desconhecido')}")
                 else:
                     st.error("Senha incorreta.")
 
@@ -476,6 +548,12 @@ with tab3:
     st.title("🛠️ Gerenciamento")
     st.caption("Área administrativa para controle do sistema.")
 
+    if not status_sistema.get("ok"):
+        st.error(f"Erro ao carregar status remoto: {status_sistema.get('erro', 'Erro desconhecido')}")
+        st.stop()
+
+    st.markdown('<div class="status-card">', unsafe_allow_html=True)
+
     col_status_1, col_status_2 = st.columns([1, 4])
 
     with col_status_1:
@@ -485,15 +563,50 @@ with tab3:
             st.success("🟢 Online")
 
     with col_status_2:
+        atualizado_por = status_sistema.get("atualizado_por", "-")
+        atualizado_em = status_sistema.get("atualizado_em", "-")
+
         if modo_manutencao:
             st.write("O sistema está em modo manutenção e indisponível para os usuários.")
         else:
             st.write("O sistema está ativo e disponível normalmente.")
 
+        st.markdown(
+            f"<div class='small-muted'><b>Última alteração:</b> {atualizado_em} | <b>Por:</b> {atualizado_por}</div>",
+            unsafe_allow_html=True
+        )
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.subheader("Acesso administrativo")
+
+    if not st.session_state["painel_admin_liberado"]:
+        senha_painel = st.text_input(
+            "Senha do painel administrativo",
+            type="password",
+            key="senha_painel_admin"
+        )
+
+        if st.button("Liberar painel", use_container_width=True):
+            if senha_painel == ADMIN_PASSWORD_OFF or senha_painel == ADMIN_PASSWORD_ON:
+                st.session_state["painel_admin_liberado"] = True
+                st.success("Painel liberado.")
+                st.rerun()
+            else:
+                st.error("Senha incorreta.")
+
+        st.stop()
+
+    responsavel_admin = st.text_input(
+        "Nome do responsável",
+        value=ADMIN_NOME_PADRAO,
+        key="responsavel_admin"
+    )
+
     st.divider()
 
-    #st.markdown('<div class="card-gerenciamento">', unsafe_allow_html=True)
-    st.subheader("Controle do sistema:")
+    st.markdown('<div class="card-gerenciamento">', unsafe_allow_html=True)
+    st.subheader("Controle do sistema")
 
     if not modo_manutencao:
         st.warning("Ao desativar o sistema, todos os usuários verão a tela de manutenção.")
@@ -508,23 +621,52 @@ with tab3:
                 key="senha_desativacao_gerenciamento"
             )
 
+            detalhe_admin = st.text_area(
+                "Motivo / observação",
+                placeholder="Ex.: Atualização da base de dados LM",
+                key="motivo_desativacao"
+            )
+
             col1, col2 = st.columns(2)
 
             with col1:
                 if st.button("Confirmar desativação", use_container_width=True, key="btn_desativar_gerenciamento"):
-                    if senha_desativar == SENHA_DESATIVAR:
-                        salvar_status_manutencao(True)
-                        st.session_state.abrir_confirmacao_desativar = False
-                        st.success("Sistema colocado em manutenção.")
-                        st.rerun()
+                    if senha_desativar == ADMIN_PASSWORD_OFF:
+                        retorno = alterar_status_remoto(
+                            acao="ativar_manutencao",
+                            responsavel=responsavel_admin or ADMIN_NOME_PADRAO or "Administrador",
+                            detalhe=detalhe_admin or "Sem observação"
+                        )
+
+                        if retorno.get("ok"):
+                            carregar_status_remoto.clear()
+                            st.session_state.abrir_confirmacao_desativar = False
+                            st.success("Sistema colocado em manutenção.")
+                            st.rerun()
+                        else:
+                            st.error(f"Erro ao desativar: {retorno.get('erro', 'Erro desconhecido')}")
                     else:
-                        st.error("Senha incorreta!")
+                        st.error("Senha incorreta.")
 
             with col2:
                 if st.button("Cancelar", use_container_width=True, key="btn_cancelar_desativacao_gerenciamento"):
                     st.session_state.abrir_confirmacao_desativar = False
                     st.rerun()
+
     else:
-        st.info("O sistema já está em manutenção. Para liberar novamente, use o botão de reativação na tela de manutenção.")
+        st.info("O sistema já está em manutenção. A reativação deve ser feita pela tela de manutenção.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="card-gerenciamento">', unsafe_allow_html=True)
+    st.subheader("Log de auditoria")
+
+    logs = status_sistema.get("logs", [])
+
+    if logs:
+        df_logs = pd.DataFrame(logs)
+        st.dataframe(df_logs, use_container_width=True, hide_index=True)
+    else:
+        st.caption("Nenhum log encontrado.")
 
     st.markdown('</div>', unsafe_allow_html=True)
