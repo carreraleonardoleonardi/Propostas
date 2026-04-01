@@ -30,7 +30,6 @@ st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
 
 .block-container {
     padding-top: 1.5rem;
