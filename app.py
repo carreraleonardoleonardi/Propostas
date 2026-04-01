@@ -519,7 +519,7 @@ with tab3:
                         st.success("Sistema colocado em manutenção.")
                         st.rerun()
                     else:
-                        st.error("Senha incorreta.")
+                        st.error("Senha incorreta!")
 
             with col2:
                 if st.button("Cancelar", use_container_width=True, key="btn_cancelar_desativacao_gerenciamento"):
