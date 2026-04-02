@@ -34,10 +34,12 @@ URL_RELATORIO = "https://docs.google.com/spreadsheets/d/1bxjKSfD2MpBpV4swaBCjkhi
 # =========================================================
 st.markdown("""
 <style>
+#MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
+header {visibility: hidden;}
 
 .block-container {
-    padding-top: 2.5rem;
+    padding-top: 1.5rem;
 }
 
 .manutencao-wrapper {
@@ -94,6 +96,161 @@ footer {visibility: hidden;}
     color: #6B7280;
     font-size: 0.92rem;
 }
+
+/* =========================
+   CARD DO SIMULADOR
+========================= */
+.plano-card {
+    background: #ffffff;
+    border: 1px solid #d9d9d9;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    margin-top: 16px;
+}
+
+.plano-header {
+    background: linear-gradient(135deg, #173B85 0%, #3A62C7 100%);
+    color: #ffffff;
+    padding: 24px 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+}
+
+.plano-header-left {
+    flex: 1;
+}
+
+.plano-marca {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+
+.plano-modelo {
+    font-size: 34px;
+    font-weight: 800;
+    line-height: 1.05;
+    margin-bottom: 6px;
+}
+
+.plano-submodelo {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.plano-header img {
+    max-width: 340px;
+    max-height: 180px;
+    object-fit: contain;
+}
+
+.plano-body {
+    background: #f7f7f7;
+    padding: 20px 24px 10px 24px;
+}
+
+.plano-caption {
+    color: #4d4d4d;
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 20px;
+}
+
+.plano-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.plano-coluna {
+    text-align: center;
+}
+
+.plano-prazo {
+    font-size: 26px;
+    font-weight: 800;
+    color: #244760;
+    margin-bottom: 12px;
+}
+
+.plano-bloco {
+    background: rgba(35, 35, 35, 0.88);
+    color: white;
+    border-radius: 20px;
+    padding: 18px 14px;
+    min-height: 220px;
+    box-shadow: 0 8px 18px rgba(0,0,0,0.16);
+}
+
+.plano-linha {
+    margin-bottom: 14px;
+}
+
+.plano-km {
+    font-size: 14px;
+    opacity: 0.95;
+    line-height: 1.2;
+}
+
+.plano-valor {
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.plano-footer {
+    padding: 20px 24px 24px 24px;
+    background: #f7f7f7;
+}
+
+.plano-aviso {
+    font-size: 15px;
+    color: #4d4d4d;
+    margin-bottom: 18px;
+}
+
+.plano-contato {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.plano-telefone {
+    font-size: 28px;
+    font-weight: 800;
+    color: #143B57;
+}
+
+.plano-logo-final {
+    font-size: 20px;
+    font-weight: 800;
+    color: #8c6b2f;
+}
+
+@media (max-width: 1200px) {
+    .plano-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .plano-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .plano-grid {
+        grid-template-columns: 1fr;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -102,7 +259,6 @@ footer {visibility: hidden;}
 # =========================================================
 BASES = {
     "Sign & Drive": "https://docs.google.com/spreadsheets/d/1PfEemQ0vJ4TlS-q-x9hfU-IK1AqUVPun8It_Wi7pzgE/export?format=csv&gid=2034069788",
-    "Sign & Drive Empresas": "https://docs.google.com/spreadsheets/d/1puuB21uOsC8-UXe4MpuGE_oSpgyj-tyoihT6u68InMk/export?format=csv",
     "Assine Car GWM": "https://docs.google.com/spreadsheets/d/1y9wBzxq6mb3OItBQ6IjrOpGW2t5QV8EADekDfLtkbRw/export?format=csv&gid=676006877",
     "Assine Car GWM - Blindado": "https://docs.google.com/spreadsheets/d/1zJB5EBhtB78RtJhqHSP6OQDX1_s0wrmMsz1C_tUKsMI/export?format=csv&gid=1332991446",
     "GAC Go and Drive": "https://docs.google.com/spreadsheets/d/1xvD_QyO9opePn2X-Z2fHZGySOPm9AgQ7EbUcwoddjPo/export?format=csv&gid=676006877",
@@ -250,6 +406,157 @@ def salvar_proposta(cotacoes, vendedor, cliente):
     return proposta_id
 
 # =========================================================
+# FUNÇÕES - SIMULADOR
+# =========================================================
+def tratar_texto_modelo(modelo: str):
+    modelo = str(modelo).strip()
+    partes = modelo.split(" ", 1)
+
+    if len(partes) == 1:
+        return partes[0], "", ""
+
+    marca = partes[0]
+    resto = partes[1]
+
+    if len(resto) > 34:
+        palavras = resto.split()
+        linha_1 = ""
+        linha_2 = ""
+
+        for palavra in palavras:
+            if len((linha_1 + " " + palavra).strip()) <= 28:
+                linha_1 = (linha_1 + " " + palavra).strip()
+            else:
+                linha_2 = (linha_2 + " " + palavra).strip()
+
+        return marca, linha_1, linha_2
+
+    return marca, resto, ""
+
+
+def valor_para_float(valor):
+    try:
+        valor_limpo = (
+            str(valor)
+            .replace("R$", "")
+            .replace(".", "")
+            .replace(",", ".")
+            .strip()
+        )
+        return float(valor_limpo)
+    except Exception:
+        return None
+
+
+def formatar_valor_brl(valor):
+    try:
+        numero = valor_para_float(valor)
+        if numero is None:
+            return str(valor)
+        inteiro = int(round(numero))
+        return f"R$ {inteiro}"
+    except Exception:
+        return str(valor)
+
+
+def extrair_planos_modelo(df, modelo):
+    dados_filtrados = df[df["nome"] == modelo]
+
+    if dados_filtrados.empty:
+        return {}, ""
+
+    row = dados_filtrados.iloc[0]
+    imagem = row.get("imagem", "")
+
+    planos = {}
+    prazos = [12, 18, 24, 36]
+    kms = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
+
+    for prazo in prazos:
+        lista = []
+
+        for km in kms:
+            col = f"preco{km}{prazo}"
+            if col in df.columns:
+                valor = row.get(col, None)
+                if pd.notna(valor) and str(valor).strip() != "":
+                    lista.append({
+                        "km": km,
+                        "valor": formatar_valor_brl(valor)
+                    })
+
+        if lista:
+            planos[prazo] = lista
+
+    return planos, imagem
+
+
+def gerar_card_plano_html(modelo, planos, imagem_url):
+    marca, linha_1, linha_2 = tratar_texto_modelo(modelo)
+
+    html_planos = ""
+    ordem_prazos = [12, 18, 24, 36]
+
+    for prazo in ordem_prazos:
+        if prazo not in planos:
+            continue
+
+        linhas = ""
+        for item in planos[prazo]:
+            linhas += f"""
+                <div class="plano-linha">
+                    <div class="plano-km">{item['km']} km/mês</div>
+                    <div class="plano-valor">{item['valor']} /mês</div>
+                </div>
+            """
+
+        html_planos += f"""
+            <div class="plano-coluna">
+                <div class="plano-prazo">{prazo} meses</div>
+                <div class="plano-bloco">
+                    {linhas}
+                </div>
+            </div>
+        """
+
+    imagem_html = ""
+    if isinstance(imagem_url, str) and imagem_url.strip().startswith("http"):
+        imagem_html = f'<img src="{imagem_url}" alt="Imagem do veículo">'
+    else:
+        imagem_html = ""
+
+    html = f"""
+    <div class="plano-card">
+        <div class="plano-header">
+            <div class="plano-header-left">
+                <div class="plano-marca">{marca}</div>
+                <div class="plano-modelo">{linha_1}</div>
+                <div class="plano-submodelo">{linha_2}</div>
+            </div>
+            {imagem_html}
+        </div>
+
+        <div class="plano-body">
+            <div class="plano-caption">PLANOS PARA PESSOA FÍSICA A PARTIR DE:</div>
+            <div class="plano-grid">
+                {html_planos}
+            </div>
+        </div>
+
+        <div class="plano-footer">
+            <div class="plano-aviso">
+                A cor escolhida pode alterar o preço. Consulte disponibilidade e condições vigentes.
+            </div>
+            <div class="plano-contato">
+                <div class="plano-telefone">4003.7214</div>
+                <div class="plano-logo-final">Carrera Signature</div>
+            </div>
+        </div>
+    </div>
+    """
+    return html
+
+# =========================================================
 # STATUS ATUAL
 # =========================================================
 status_sistema = carregar_status_manutencao()
@@ -332,7 +639,7 @@ if modo_manutencao:
 # =========================================================
 # ABAS
 # =========================================================
-tab1, tab2, tab3 = st.tabs(["🚗 Propostas", "📊 Relatório", "🛠️ Gerenciamento"])
+tab1, tab2, tab3, tab4 = st.tabs(["🚗 Propostas", "📊 Relatório", "🛠️ Gerenciamento", "🧮 Simulador"])
 
 # =========================================================
 # PROPOSTAS
@@ -517,6 +824,8 @@ with tab3:
     st.title("🛠️ Gerenciamento")
     st.caption("Área administrativa para controle do sistema.")
 
+    st.markdown('<div class="status-card">', unsafe_allow_html=True)
+
     col_status_1, col_status_2 = st.columns([1, 4])
 
     with col_status_1:
@@ -539,6 +848,9 @@ with tab3:
             unsafe_allow_html=True
         )
 
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="card-gerenciamento">', unsafe_allow_html=True)
     st.subheader("Controle do sistema")
 
     responsavel_admin = st.text_input(
@@ -580,3 +892,56 @@ with tab3:
         st.info("O sistema já está em manutenção. A reativação deve ser feita pela tela principal de manutenção.")
 
     st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================================================
+# SIMULADOR
+# =========================================================
+with tab4:
+    st.title("🧮 Simulador de Plano")
+    st.caption("Selecione o segmento e o modelo para montar o card comercial do plano.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        segmento_sim = st.selectbox(
+            "Segmento",
+            list(BASES.keys()),
+            key="sim_segmento"
+        )
+
+    df_sim = carregar_base(BASES[segmento_sim])
+
+    modelos_disponiveis = []
+    if "nome" in df_sim.columns:
+        modelos_disponiveis = sorted(df_sim["nome"].dropna().unique())
+
+    with col2:
+        modelo_sim = st.selectbox(
+            "Modelo",
+            modelos_disponiveis,
+            key="sim_modelo"
+        )
+
+    if st.button("✨ Montar card do plano", use_container_width=True):
+        planos, imagem = extrair_planos_modelo(df_sim, modelo_sim)
+
+        if not planos:
+            st.warning("Não foram encontrados planos para este modelo.")
+        else:
+            html_card = gerar_card_plano_html(modelo_sim, planos, imagem)
+            st.markdown(html_card, unsafe_allow_html=True)
+
+            st.divider()
+
+            with st.expander("Ver estrutura dos planos encontrados"):
+                linhas = []
+                for prazo, itens in planos.items():
+                    for item in itens:
+                        linhas.append({
+                            "Prazo": prazo,
+                            "KM por mês": item["km"],
+                            "Valor": f"{item['valor']} /mês"
+                        })
+
+                if linhas:
+                    st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True)
