@@ -41,12 +41,8 @@ st.set_page_config(
 # =========================================================
 # Lê as senhas do st.secrets (arquivo .streamlit/secrets.toml)
 # Se não encontrar (ambiente local sem secrets), usa fallback
-try:
-    SENHA_DESATIVAR = st.secrets["SENHA_DESATIVAR"]
-    SENHA_ATIVAR    = st.secrets["SENHA_ATIVAR"]
-except Exception:
-    SENHA_DESATIVAR = "DesativaSignature#2026"
-    SENHA_ATIVAR    = "AtivaSignature#2026"
+SENHA_DESATIVAR = st.secrets["SENHA_DESATIVAR"]
+SENHA_ATIVAR    = st.secrets["SENHA_ATIVAR"]
 
 ARQUIVO_STATUS = "status_sistema.json"
 
