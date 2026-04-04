@@ -76,9 +76,18 @@ AZUL_CARRERA_HEX = "#213144"
 # =========================================================
 st.markdown("""
 <style>
+#MainMenu {visibility: hidden;}
+header {visibility: hidden; height: 0; min-height: 0;}
 [data-testid="stToolbar"] {visibility: hidden;}
 [data-testid="stDecoration"] {visibility: hidden;}
-[data-testid="collapsedControl"] {visibility: visible !important;}         
+[data-testid="collapsedControl"] {
+    visibility: visible !important;
+    height: auto !important;
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 999;
+}    
 
 .block-container {
     padding-top: 2.5rem;
