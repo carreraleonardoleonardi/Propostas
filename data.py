@@ -85,7 +85,7 @@ def carregar_relatorio() -> pd.DataFrame:
     df = df[[c for c in colunas_esperadas if c in df.columns]]
 
     if "data" in df.columns:
-        df["data"] = pd.to_datetime(df["data"], errors="coerce")
+        df["data"] = pd.to_datetime(df["data"], dayfirst=True, errors="coerce")
 
     if "valor" in df.columns:
         df["valor"] = (

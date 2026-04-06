@@ -39,8 +39,6 @@ st.set_page_config(
 # =========================================================
 # CONFIGURAÇÕES DE SEGURANÇA
 # =========================================================
-# Lê as senhas do st.secrets (arquivo .streamlit/secrets.toml)
-# Se não encontrar (ambiente local sem secrets), usa fallback
 SENHA_DESATIVAR = st.secrets["SENHA_DESATIVAR"]
 SENHA_ATIVAR    = st.secrets["SENHA_ATIVAR"]
 
@@ -253,10 +251,10 @@ def draw_text_center(draw, box_x1, box_x2, y, text, font, fill):
 # GERAÇÃO DO CARD HTML
 # =========================================================
 def gerar_card_plano_html(modelo, planos, imagem_url, segmento=""):
-    validade     = data_validade_mes_atual()
-    qtd_colunas  = max(1, len(planos))
-    nome_modelo  = str(modelo).strip().upper()
-    marca        = str(segmento).strip().upper() if segmento else str(modelo).split()[0].upper()
+    validade    = data_validade_mes_atual()
+    qtd_colunas = max(1, len(planos))
+    nome_modelo = str(modelo).strip().upper()
+    marca       = str(segmento).strip().upper() if segmento else str(modelo).split()[0].upper()
 
     if qtd_colunas <= 3:
         prazo_font = 26; km_font = 14; valor_font = 18
@@ -373,13 +371,13 @@ def gerar_card_png(modelo, planos, imagem_url, segmento=""):
         prazo_font_sz = 20; km_font_sz = 14; valor_font_sz = 18
         linha_gap = 58; gap = 10; bloco_padding_top = 18; bloco_padding_bottom = 18
 
-    header_h        = 260
-    body_caption_h  = 70
-    prazo_area_h    = 52
+    header_h         = 260
+    body_caption_h   = 70
+    prazo_area_h     = 52
     maior_qtd_linhas = max(len(itens) for itens in planos.values()) if planos else 1
-    bloco_h         = bloco_padding_top + bloco_padding_bottom + (maior_qtd_linhas * linha_gap)
-    footer_top_gap  = 34
-    footer_h        = footer_top_gap + 28 + 28 + 62 + 60
+    bloco_h          = bloco_padding_top + bloco_padding_bottom + (maior_qtd_linhas * linha_gap)
+    footer_top_gap   = 34
+    footer_h         = footer_top_gap + 28 + 28 + 62 + 60
 
     altura = margem * 2 + header_h + body_caption_h + prazo_area_h + bloco_h + footer_h
 
@@ -398,8 +396,8 @@ def gerar_card_png(modelo, planos, imagem_url, segmento=""):
     nome_modelo = str(modelo).strip().upper()
     marca       = str(segmento).strip().upper() if segmento else str(modelo).split()[0].upper()
 
-    draw.text((card_x1 + 28, card_y1 + 48),  marca,       font=get_font(35, bold=True),  fill=(255, 255, 255, 255))
-    draw.text((card_x1 + 28, card_y1 + 90),  nome_modelo, font=get_font(40, bold=False),  fill=(255, 255, 255, 255))
+    draw.text((card_x1 + 28, card_y1 + 48), marca,       font=get_font(35, bold=True),  fill=(255, 255, 255, 255))
+    draw.text((card_x1 + 28, card_y1 + 90), nome_modelo, font=get_font(40, bold=False), fill=(255, 255, 255, 255))
 
     foto = baixar_imagem_pil(imagem_url)
     if foto:
@@ -416,22 +414,30 @@ def gerar_card_png(modelo, planos, imagem_url, segmento=""):
 
     for i, (prazo, itens) in enumerate(planos.items()):
         x = grid_left + i * (col_w + gap)
-        draw_text_center(draw, x, x + col_w, grid_top, f"{prazo} meses", get_font(prazo_font_sz, bold=True), AZUL_CARRERA + (255,))
+        draw_text_center(draw, x, x + col_w, grid_top, f"{prazo} meses",
+            get_font(prazo_font_sz, bold=True), AZUL_CARRERA + (255,))
 
         bloco_y = grid_top + prazo_area_h
-        draw.rounded_rectangle([x, bloco_y, x + col_w, bloco_y + bloco_h], radius=22, fill=(56, 56, 56, 235))
+        draw.rounded_rectangle([x, bloco_y, x + col_w, bloco_y + bloco_h],
+            radius=22, fill=(56, 56, 56, 235))
 
         cursor_y = bloco_y + bloco_padding_top
         for item in itens:
-            draw_text_center(draw, x, x + col_w, cursor_y,      f"{item['km']} km/mês",   get_font(km_font_sz),               (240, 240, 240, 255))
-            draw_text_center(draw, x, x + col_w, cursor_y + 24, f"{item['valor']}",  get_font(valor_font_sz, bold=True),  (255, 255, 255, 255))
+            draw_text_center(draw, x, x + col_w, cursor_y,
+                f"{item['km']} km/mês", get_font(km_font_sz), (240, 240, 240, 255))
+            draw_text_center(draw, x, x + col_w, cursor_y + 24,
+                f"{item['valor']}", get_font(valor_font_sz, bold=True), (255, 255, 255, 255))
             cursor_y += linha_gap
 
     footer_y = grid_top + prazo_area_h + bloco_h + footer_top_gap
     validade  = data_validade_mes_atual()
 
-    draw.text((card_x1 + 22, footer_y),      "A cor escolhida pode alterar o preço. Consulte disponibilidade e condições vigentes.", font=get_font(22),            fill=(66, 66, 66, 255))
-    draw.text((card_x1 + 22, footer_y + 34), f"Planos válidos até {validade}, valores sujeitos a alteração.",                                                       font=get_font(22, bold=True), fill=(66, 66, 66, 255))
+    draw.text((card_x1 + 22, footer_y),
+        "A cor escolhida pode alterar o preço. Consulte disponibilidade e condições vigentes.",
+        font=get_font(22), fill=(66, 66, 66, 255))
+    draw.text((card_x1 + 22, footer_y + 34),
+        f"Planos válidos até {validade}, valores sujeitos a alteração.",
+        font=get_font(22, bold=True), fill=(66, 66, 66, 255))
 
     icon  = baixar_imagem_pil(URL_ICON_WPP)
     y_tel = footer_y + 72
@@ -528,7 +534,9 @@ if modo_manutencao:
 # =========================================================
 # ABAS PRINCIPAIS
 # =========================================================
-tab1, tab2, tab3, tab4 = st.tabs(["🚗 Propostas", "📊 Relatório", "🛠️ Gerenciamento", "🧮 Simulador"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🚗 Propostas", "📊 Relatório", "🛠️ Gerenciamento", "🧮 Simulador", "🔍 Comparativo"
+])
 
 
 # =========================================================
@@ -552,26 +560,26 @@ with tab1:
                     st.error(f"A base '{segmento}' não possui a coluna 'nome'.")
                     continue
 
-                veiculos = obter_veiculos(df)  # ← agora usa data.py
+                veiculos = obter_veiculos(df)
 
                 if not veiculos:
                     st.warning(f"Sem veículos para {segmento}.")
                     continue
 
-                veiculo = st.selectbox("Veículo", veiculos, key=f"vei_{i}", index=1)
-                dados   = obter_dados_veiculo(df, veiculo)  # ← agora usa data.py
+                veiculo = st.selectbox("Veículo", veiculos, key=f"vei_{i}", index=0)
+                dados   = obter_dados_veiculo(df, veiculo)
 
                 if dados is None:
                     st.warning("Veículo não encontrado.")
                     continue
 
                 if "imagem" in dados.index and pd.notna(dados["imagem"]):
-                    st.image(dados["imagem"], use_container_width=True)
+                    st.image(dados["imagem"], width="stretch")
 
                 prazo = st.selectbox("Prazo", [12, 18, 24, 36, 48], key=f"prazo_{i}")
                 km    = st.selectbox("KM", [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000], key=f"km_{i}")
 
-                valor = calcular_valor(df, dados, km, prazo)  # ← agora usa data.py
+                valor = calcular_valor(df, dados, km, prazo)
                 st.success(str(valor))
 
                 cotacoes.append({
@@ -655,8 +663,8 @@ with tab2:
         df_filtro = df_filtro[df_filtro["consultor"] == consultor]
 
     col1, col2, col3, col4 = st.columns(4)
-    propostas    = df_filtro["proposta_id"].nunique() if "proposta_id" in df_filtro.columns else 0
-    veiculos_qtd = len(df_filtro)
+    propostas     = df_filtro["proposta_id"].nunique() if "proposta_id" in df_filtro.columns else 0
+    veiculos_qtd  = len(df_filtro)
     top_consultor = df_filtro["consultor"].mode()[0] if ("consultor" in df_filtro.columns and not df_filtro.empty and not df_filtro["consultor"].dropna().empty) else "-"
     top_modelo    = df_filtro["modelo"].mode()[0]    if ("modelo" in df_filtro.columns    and not df_filtro.empty and not df_filtro["modelo"].dropna().empty)    else "-"
 
@@ -702,7 +710,10 @@ with tab3:
         atualizado_por = status_sistema.get("atualizado_por", "-") or "-"
         atualizado_em  = status_sistema.get("atualizado_em",  "-") or "-"
         st.write("O sistema está em modo manutenção." if modo_manutencao else "O sistema está ativo e disponível normalmente.")
-        st.markdown(f"<div class='small-muted'><b>Última alteração:</b> {atualizado_em} | <b>Por:</b> {atualizado_por}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='small-muted'><b>Última alteração:</b> {atualizado_em} | <b>Por:</b> {atualizado_por}</div>",
+            unsafe_allow_html=True
+        )
 
     st.subheader("Controle do sistema")
 
@@ -736,8 +747,6 @@ with tab3:
     else:
         st.info("O sistema já está em manutenção. A reativação deve ser feita pela tela principal.")
 
-    st.markdown('</div>', unsafe_allow_html=True)
-
 
 # =========================================================
 # ABA 4 - SIMULADOR
@@ -751,14 +760,14 @@ with tab4:
     with col1:
         segmento_sim = st.selectbox("Segmento", list(BASES.keys()), key="sim_segmento")
 
-    df_sim           = carregar_base(BASES[segmento_sim])
-    modelos_disponiveis = obter_veiculos(df_sim)  # ← agora usa data.py
+    df_sim              = carregar_base(BASES[segmento_sim])
+    modelos_disponiveis = obter_veiculos(df_sim)
 
     with col2:
-        modelo_sim = st.selectbox("Modelo", modelos_disponiveis, key="sim_modelo")
+        modelo_sim = st.selectbox("Modelo", modelos_disponiveis, key="sim_modelo", index=0)
 
     if st.button("✨ Montar card do plano", use_container_width=True):
-        planos, imagem = extrair_planos_modelo(df_sim, modelo_sim)  # ← agora usa data.py
+        planos, imagem = extrair_planos_modelo(df_sim, modelo_sim)
 
         if not planos:
             st.warning("Não foram encontrados planos para este modelo.")
@@ -785,4 +794,145 @@ with tab4:
                     for item in itens
                 ]
                 if linhas:
-                    st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(linhas), width="stretch", hide_index=True)
+
+
+
+# =========================================================
+# ABA 5 - COMPARATIVO
+# =========================================================
+with tab5:
+    st.title("🔍 Comparativo de Planos")
+    st.caption("Filtre por segmento, prazo, KM e faixa de preço para comparar ofertas.")
+
+    # Linha 1 — Segmento (ocupa largura total)
+    segmentos_selecionados = st.multiselect(
+        "Segmento (deixe vazio para buscar em todos)",
+        options=list(BASES.keys()),
+        default=[],
+        max_selections=4,
+        placeholder="Todos os segmentos"
+    )
+
+    # Linha 2 — demais filtros
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        prazos_selecionados = st.multiselect(
+            "Prazo (meses)",
+            options=[12, 18, 24, 36, 48],
+            default=[24],
+            max_selections=2
+        )
+
+    with col2:
+        kms_selecionados = st.multiselect(
+            "KM por mês",
+            options=[500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000],
+            default=[1000],
+            max_selections=2
+        )
+
+    with col3:
+        preco_min = st.number_input(
+            "Preço mínimo (R$)",
+            min_value=0,
+            max_value=99999,
+            value=0,
+            step=100
+        )
+
+    with col4:
+        preco_max = st.number_input(
+            "Preço máximo (R$)",
+            min_value=0,
+            max_value=99999,
+            value=10000,
+            step=100
+        )
+
+    st.divider()
+
+    if st.button("🔍 Buscar ofertas", use_container_width=True):
+
+        if not prazos_selecionados:
+            st.warning("Selecione ao menos um prazo.")
+            st.stop()
+
+        if not kms_selecionados:
+            st.warning("Selecione ao menos um KM.")
+            st.stop()
+
+        # Se nenhum segmento selecionado, busca em todos
+        bases_busca = (
+            {k: v for k, v in BASES.items() if k in segmentos_selecionados}
+            if segmentos_selecionados else BASES
+        )
+
+        resultados = []
+
+        with st.spinner("Buscando..."):
+            for segmento, url in bases_busca.items():
+                try:
+                    df_comp = carregar_base(url)
+
+                    if "nome" not in df_comp.columns:
+                        continue
+
+                    for _, row in df_comp.iterrows():
+                        nome = row.get("nome", "")
+                        if pd.isna(nome) or not str(nome).strip():
+                            continue
+
+                        for prazo in prazos_selecionados:
+                            for km in kms_selecionados:
+                                col_preco = f"preco{km}{prazo}"
+
+                                if col_preco not in df_comp.columns:
+                                    continue
+
+                                valor_raw = row.get(col_preco, None)
+
+                                if pd.isna(valor_raw):
+                                    continue
+
+                                valor_str = str(valor_raw).strip()
+                                if not valor_str or valor_str.lower() == "nan":
+                                    continue
+                                if "nao disponivel" in valor_str.lower():
+                                    continue
+                                if "sob consulta" in valor_str.lower():
+                                    continue
+
+                                valor_num = valor_para_float(valor_str)
+                                if valor_num is None:
+                                    continue
+
+                                if preco_min <= valor_num <= preco_max:
+                                    resultados.append({
+                                        "Segmento":   segmento,
+                                        "Modelo":     str(nome).strip(),
+                                        "Prazo":      f"{prazo} meses",
+                                        "KM/mês":     f"{km} km",
+                                        "Valor":      valor_num,
+                                        "Valor (R$)": formatar_valor_brl(valor_num)
+                                    })
+
+                except Exception as e:
+                    st.warning(f"Erro ao carregar {segmento}: {e}")
+                    continue
+
+        if not resultados:
+            st.info("Nenhuma oferta encontrada com os filtros selecionados.")
+        else:
+            df_resultado = (
+                pd.DataFrame(resultados)
+                .sort_values("Valor")
+                .reset_index(drop=True)
+            )
+
+            df_exibir = df_resultado.drop(columns=["Valor"])
+
+            st.success(f"{len(df_resultado)} oferta(s) encontrada(s)")
+
+            st.dataframe(df_exibir, width="stretch", hide_index=True)

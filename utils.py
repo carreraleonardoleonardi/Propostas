@@ -15,7 +15,6 @@ import pandas as pd
 def limpar_texto(txt) -> str:
     """
     Limpa texto para uso no PDF (compatibilidade latin-1).
-    Usado pelo pdf_generator.py.
     """
     if pd.isna(txt):
         return ""
@@ -29,17 +28,20 @@ def limpar_texto(txt) -> str:
 def valor_para_float(valor) -> float | None:
     """
     Converte texto monetário em float.
-    Ex.: 'R$ 2.139,00' -> 2139.0
+    Ex.: 'R$ 2.139,00 /mês' -> 2139.0
+    Ex.: 'R$ 2139 /mês'     -> 2139.0
     """
     try:
-        valor_limpo = (
-            str(valor)
-            .replace("R$", "")
-            .replace(".", "")
-            .replace(",", ".")
-            .strip()
-        )
-        return float(valor_limpo)
+        # Se já for numérico, retorna direto sem processar
+        if isinstance(valor, (int, float)):
+            return float(valor)
+        texto = str(valor)
+        texto = texto.split("/")[0]   # remove /mês
+        texto = texto.replace("R$", "")
+        texto = texto.replace(".", "")
+        texto = texto.replace(",", ".")
+        texto = texto.strip()
+        return float(texto)
     except Exception:
         return None
 
@@ -66,7 +68,6 @@ def formatar_valor_brl(valor) -> str:
 def data_validade_mes_atual() -> str:
     """
     Retorna o último dia do mês atual no formato DD/MM/AAAA.
-    Usado nos cards de plano.
     """
     hoje = datetime.date.today()
     ultimo_dia = calendar.monthrange(hoje.year, hoje.month)[1]
