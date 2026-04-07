@@ -16,6 +16,9 @@ from utils import formatar_valor_brl
 # =========================================================
 BASES = {
     "Sign & Drive": "https://docs.google.com/spreadsheets/d/1PfEemQ0vJ4TlS-q-x9hfU-IK1AqUVPun8It_Wi7pzgE/export?format=csv&gid=2034069788",
+    "Sign & Drive Empresas": "https://docs.google.com/spreadsheets/d/1puuB21uOsC8-UXe4MpuGE_oSpgyj-tyoihT6u68InMk/export?format=csv",
+    "Assine Car GWM": "https://docs.google.com/spreadsheets/d/1y9wBzxq6mb3OItBQ6IjrOpGW2t5QV8EADekDfLtkbRw/export?format=csv&gid=676006877",
+    "Assine Car GWM - Blindado": "https://docs.google.com/spreadsheets/d/1zJB5EBhtB78RtJhqHSP6OQDX1_s0wrmMsz1C_tUKsMI/export?format=csv&gid=1332991446",
     "GAC Go and Drive": "https://docs.google.com/spreadsheets/d/1xvD_QyO9opePn2X-Z2fHZGySOPm9AgQ7EbUcwoddjPo/export?format=csv&gid=676006877",
     "Assine Car One": "https://docs.google.com/spreadsheets/d/1FgVXCyGyhqXyeXz3cYePDSZjRGgmJu9Jj6rAmasjeQQ/export?format=csv&gid=676006877",
     "Nissan Move": "https://docs.google.com/spreadsheets/d/1pmK--_5SGVKW-LRXUK7TIjptP5DNxfYQMHS-cXA_rzw/export?format=csv&gid=1044813671",
@@ -150,7 +153,7 @@ def calcular_valor(df: pd.DataFrame, dados: pd.Series, km: int, prazo: int) -> s
     return formatar_valor_brl(valor)
 
 
-def extrair_planos_modelo(df: pd.DataFrame, modelo: str) -> tuple[dict, str]:
+def extrair_planos_modelo(df: pd.DataFrame, modelo: str) -> tuple[dict, str, str, str]:
     """
     Lê a linha do modelo e identifica automaticamente
     todos os planos disponíveis com base nas colunas da base.
@@ -158,13 +161,17 @@ def extrair_planos_modelo(df: pd.DataFrame, modelo: str) -> tuple[dict, str]:
     Retorna:
     - planos: dict { prazo: [ { km, valor } ] }
     - imagem: URL da imagem do veículo
+    - nome_modelo: nome curto do modelo (coluna 'modelo')
+    - versao: versão completa (coluna 'versao')
     """
     dados = obter_dados_veiculo(df, modelo)
 
     if dados is None:
-        return {}, ""
+        return {}, "", "", ""
 
-    imagem = dados.get("imagem", "")
+    imagem     = dados.get("imagem", "")
+    nome_modelo = str(dados.get("modelo", modelo)).strip()
+    versao      = str(dados.get("versao", "")).strip()
     planos = {}
     padrao = re.compile(r"^preco(\d+)(\d{2})$")
 
@@ -199,4 +206,4 @@ def extrair_planos_modelo(df: pd.DataFrame, modelo: str) -> tuple[dict, str]:
     for prazo in sorted(planos.keys()):
         planos_ordenados[prazo] = sorted(planos[prazo], key=lambda x: x["km"])
 
-    return planos_ordenados, imagem
+    return planos_ordenados, imagem, nome_modelo, versao

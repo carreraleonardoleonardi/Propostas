@@ -250,21 +250,22 @@ def draw_text_center(draw, box_x1, box_x2, y, text, font, fill):
 # =========================================================
 # GERAÇÃO DO CARD HTML
 # =========================================================
-def gerar_card_plano_html(modelo, planos, imagem_url, segmento=""):
+def gerar_card_plano_html(modelo, planos, imagem_url, segmento="", versao=""):
     validade    = data_validade_mes_atual()
     qtd_colunas = max(1, len(planos))
-    nome_modelo = str(modelo).strip().upper()
-    marca       = str(segmento).strip().upper() if segmento else str(modelo).split()[0].upper()
+    titulo      = str(modelo).strip().title()
+    subtitulo   = str(versao).strip()
+    seg_label   = str(segmento).strip()
 
     if qtd_colunas <= 3:
         prazo_font = 26; km_font = 14; valor_font = 18
-        bloco_padding = "18px 14px"; bloco_min_height = "220px"; gap_grid = "18px"
+        bloco_padding = "18px 14px"; bloco_min_height = "auto"; gap_grid = "18px"
     elif qtd_colunas <= 5:
         prazo_font = 22; km_font = 13; valor_font = 16
-        bloco_padding = "16px 12px"; bloco_min_height = "220px"; gap_grid = "14px"
+        bloco_padding = "16px 12px"; bloco_min_height = "auto"; gap_grid = "14px"
     else:
         prazo_font = 18; km_font = 11; valor_font = 14
-        bloco_padding = "14px 10px"; bloco_min_height = "220px"; gap_grid = "10px"
+        bloco_padding = "14px 10px"; bloco_min_height = "auto"; gap_grid = "10px"
 
     html_planos = ""
     for prazo, itens in planos.items():
@@ -287,6 +288,9 @@ def gerar_card_plano_html(modelo, planos, imagem_url, segmento=""):
     if isinstance(imagem_url, str) and imagem_url.strip().startswith("http"):
         imagem_html = f'<img src="{imagem_url}" alt="Imagem do veículo">'
 
+    subtitulo_html = f'<div class="plano-versao">{subtitulo}</div>' if subtitulo else ""
+    segmento_html  = f'<div class="plano-segmento">{seg_label}</div>' if seg_label else ""
+
     return f"""
     <html>
     <head>
@@ -296,51 +300,53 @@ def gerar_card_plano_html(modelo, planos, imagem_url, segmento=""):
         <style>
             body {{ margin: 0; padding: 14px; background: #f3f3f3; font-family: 'Montserrat', Arial, sans-serif; }}
             .plano-card {{ background: #ffffff; border: 1px solid #d9d9d9; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }}
-            .plano-header {{ background: linear-gradient(135deg, {AZUL_CARRERA_HEX} 0%, #2e4663 100%); color: #ffffff; padding: 24px 28px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }}
-            .plano-header-left {{ flex: 1; }}
-            .plano-marca {{ font-size: 15px; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.4px; }}
-            .plano-modelo {{ font-size: 32px; font-weight: 800; line-height: 1.1; text-transform: uppercase; }}
-            .plano-header img {{ max-width: 320px; max-height: 170px; object-fit: contain; }}
-            .plano-body {{ background: #f7f7f7; padding: 18px 18px 8px 18px; }}
-            .plano-caption {{ color: #3f3f3f; font-size: 20px; font-weight: 800; margin-bottom: 16px; text-transform: uppercase; }}
-            .plano-grid {{ display: grid; grid-template-columns: repeat({qtd_colunas}, minmax(140px, 1fr)); gap: {gap_grid}; align-items: start; }}
+            .plano-header {{ background: {AZUL_CARRERA_HEX}; color: #ffffff; padding: 28px 32px; display: flex; justify-content: space-between; align-items: center; gap: 20px; min-height: 180px; }}
+            .plano-header-left {{ flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 4px; }}
+            .plano-titulo {{ font-size: 42px; font-weight: 800; line-height: 1.1; margin: 0; }}
+            .plano-versao {{ font-size: 20px; font-weight: 600; line-height: 1.2; opacity: 0.9; margin: 4px 0 0 0; }}
+            .plano-segmento {{ font-size: 13px; font-weight: 500; letter-spacing: 1px; opacity: 0.65; margin-top: 8px; }}
+            .plano-header img {{ max-width: 380px; max-height: 200px; object-fit: contain; }}
+            .plano-body {{ background: #ffffff; padding: 24px 24px 8px 24px; }}
+            .plano-caption {{ color: #3f3f3f; font-size: 13px; font-weight: 700; margin-bottom: 18px; text-transform: uppercase; letter-spacing: 1px; text-align: center; }}
+            .plano-grid {{ display: grid; grid-template-columns: repeat({qtd_colunas}, minmax(140px, 220px)); gap: {gap_grid}; align-items: start; justify-content: center; }}
             .plano-coluna {{ text-align: center; }}
             .plano-prazo {{ font-size: {prazo_font}px; font-weight: 800; color: {AZUL_CARRERA_HEX}; margin-bottom: 10px; }}
-            .plano-bloco {{ background: rgba(35, 35, 35, 0.88); color: white; border-radius: 20px; padding: {bloco_padding}; min-height: {bloco_min_height}; box-shadow: 0 8px 18px rgba(0,0,0,0.16); }}
+            .plano-bloco {{ background: rgba(33, 49, 68, 0.90); color: white; border-radius: 20px; padding: {bloco_padding}; min-height: {bloco_min_height}; box-shadow: 0 8px 18px rgba(0,0,0,0.16); }}
             .plano-linha {{ margin-bottom: 12px; }}
-            .plano-km {{ font-size: {km_font}px; opacity: 0.95; font-weight: 500; }}
+            .plano-km {{ font-size: {km_font}px; opacity: 0.85; font-weight: 500; }}
             .plano-valor {{ font-size: {valor_font}px; font-weight: 800; }}
-            .plano-footer {{ padding: 18px 18px 22px 18px; background: #f7f7f7; }}
-            .plano-aviso {{ font-size: 14px; color: #4d4d4d; margin-bottom: 10px; font-weight: 500; }}
-            .plano-validade {{ font-size: 14px; color: #4d4d4d; margin-bottom: 16px; font-weight: 800; }}
-            .plano-contato {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }}
+            .plano-footer {{ padding: 18px 24px 22px 24px; background: #ffffff; }}
+            .plano-aviso {{ font-size: 13px; color: #6b7280; margin-bottom: 16px; text-align: center; }}
+            .plano-contato {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
             .plano-telefone-wrap {{ display: flex; align-items: center; gap: 10px; }}
             .plano-wpp {{ width: 28px; height: 28px; object-fit: contain; }}
-            .plano-telefone {{ font-size: 24px; font-weight: 800; color: {AZUL_CARRERA_HEX}; }}
-            .plano-logo-final-img {{ height: 36px; object-fit: contain; }}
+            .plano-telefone {{ font-size: 26px; font-weight: 800; color: {AZUL_CARRERA_HEX}; }}
+            .plano-linha-sep {{ flex: 1; height: 1px; background: {AZUL_CARRERA_HEX}; opacity: 0.2; margin: 0 16px; }}
+            .plano-logo-final-img {{ height: 40px; object-fit: contain; }}
         </style>
     </head>
     <body>
         <div class="plano-card">
             <div class="plano-header">
                 <div class="plano-header-left">
-                    <div class="plano-marca">{marca}</div>
-                    <div class="plano-modelo">{nome_modelo}</div>
+                    <div class="plano-titulo">{titulo}</div>
+                    {subtitulo_html}
+                    {segmento_html}
                 </div>
                 {imagem_html}
             </div>
             <div class="plano-body">
-                <div class="plano-caption">PLANOS DISPONÍVEIS:</div>
+                <div class="plano-caption">Planos Disponíveis</div>
                 <div class="plano-grid">{html_planos}</div>
             </div>
             <div class="plano-footer">
-                <div class="plano-aviso">A cor escolhida pode alterar o preço. Consulte disponibilidade e condições vigentes.</div>
-                <div class="plano-validade">Planos válidos até {validade}</div>
+                <div class="plano-aviso">A cor escolhida pode alterar o preço. Ofertas válidas para {validade}</div>
                 <div class="plano-contato">
                     <div class="plano-telefone-wrap">
                         <img class="plano-wpp" src="{URL_ICON_WPP}" alt="WhatsApp">
                         <div class="plano-telefone">4003.7214</div>
                     </div>
+                    <div class="plano-linha-sep"></div>
                     <div>
                         <img class="plano-logo-final-img" src="{URL_LOGO_CARRERA}" alt="Carrera Signature">
                     </div>
@@ -355,29 +361,39 @@ def gerar_card_plano_html(modelo, planos, imagem_url, segmento=""):
 # =========================================================
 # GERAÇÃO DO CARD PNG
 # =========================================================
-def gerar_card_png(modelo, planos, imagem_url, segmento=""):
+def gerar_card_png(modelo, planos, imagem_url, segmento="", versao=""):
+    # ── Escala: o webapp renderiza ~1100px de largura útil
+    # ── O PNG tem 1800px → escala ≈ 1.636x
+    # ── Todos os valores de fonte e espaçamento seguem essa proporção
+    S = 1.636  # fator de escala CSS → PNG
+
     largura = 1800
-    margem  = 18
+    margem  = int(18 * S)
     card_x1, card_x2 = margem, largura - margem
     qtd_colunas = max(1, len(planos))
 
-    if qtd_colunas <= 3:
-        prazo_font_sz = 28; km_font_sz = 18; valor_font_sz = 24
-        linha_gap = 72; gap = 18; bloco_padding_top = 24; bloco_padding_bottom = 24
-    elif qtd_colunas <= 5:
-        prazo_font_sz = 24; km_font_sz = 16; valor_font_sz = 21
-        linha_gap = 66; gap = 14; bloco_padding_top = 22; bloco_padding_bottom = 22
-    else:
-        prazo_font_sz = 20; km_font_sz = 14; valor_font_sz = 18
-        linha_gap = 58; gap = 10; bloco_padding_top = 18; bloco_padding_bottom = 18
+    # Fontes escaladas do CSS
+    prazo_font_sz  = int(26 * S)  # CSS: 26px (<=3 cols)
+    km_font_sz     = int(14 * S)
+    valor_font_sz  = int(18 * S)
+    gap            = int(18 * S)
 
-    header_h         = 260
-    body_caption_h   = 70
-    prazo_area_h     = 52
+    if qtd_colunas > 3 and qtd_colunas <= 5:
+        prazo_font_sz = int(22 * S); km_font_sz = int(13 * S); valor_font_sz = int(16 * S)
+        gap = int(14 * S)
+    elif qtd_colunas > 5:
+        prazo_font_sz = int(18 * S); km_font_sz = int(11 * S); valor_font_sz = int(14 * S)
+        gap = int(10 * S)
+
+    bloco_padding  = int(18 * S)
+    linha_gap      = int((km_font_sz + valor_font_sz + 18))
+
+    header_h         = int(180 * S)
+    body_caption_h   = int(60 * S)
+    prazo_area_h     = int(52 * S)
     maior_qtd_linhas = max(len(itens) for itens in planos.values()) if planos else 1
-    bloco_h          = bloco_padding_top + bloco_padding_bottom + (maior_qtd_linhas * linha_gap)
-    footer_top_gap   = 34
-    footer_h         = footer_top_gap + 28 + 28 + 62 + 60
+    bloco_h          = bloco_padding * 2 + (maior_qtd_linhas * linha_gap)
+    footer_h         = int(160 * S)
 
     altura = margem * 2 + header_h + body_caption_h + prazo_area_h + bloco_h + footer_h
 
@@ -386,72 +402,116 @@ def gerar_card_png(modelo, planos, imagem_url, segmento=""):
 
     card_y1, card_y2 = margem, altura - margem
 
-    draw.rounded_rectangle([card_x1, card_y1, card_x2, card_y2], radius=22,
+    # Card externo branco
+    draw.rounded_rectangle([card_x1, card_y1, card_x2, card_y2], radius=int(16 * S),
         fill=(255, 255, 255, 255), outline=(217, 217, 217, 255), width=2)
-    draw.rounded_rectangle([card_x1, card_y1, card_x2, card_y1 + header_h], radius=22,
+
+    # Header azul sólido
+    draw.rounded_rectangle([card_x1, card_y1, card_x2, card_y1 + header_h], radius=int(16 * S),
         fill=(*AZUL_CARRERA, 255))
-    draw.rectangle([card_x1, card_y1 + 30, card_x2, card_y1 + header_h],
+    draw.rectangle([card_x1, card_y1 + int(30 * S), card_x2, card_y1 + header_h],
         fill=(*AZUL_CARRERA, 255))
 
-    nome_modelo = str(modelo).strip().upper()
-    marca       = str(segmento).strip().upper() if segmento else str(modelo).split()[0].upper()
+    # Textos do header
+    titulo    = str(modelo).strip().title()
+    subtitulo = str(versao).strip()
+    seg_label = str(segmento).strip()
 
-    draw.text((card_x1 + 28, card_y1 + 48), marca,       font=get_font(35, bold=True),  fill=(255, 255, 255, 255))
-    draw.text((card_x1 + 28, card_y1 + 90), nome_modelo, font=get_font(40, bold=False), fill=(255, 255, 255, 255))
+    pad_h = int(28 * S)
+    draw.text((card_x1 + pad_h, card_y1 + pad_h), titulo,
+        font=get_font(int(42 * S), bold=True), fill=(255, 255, 255, 255))
+    y_cursor = card_y1 + pad_h + int(52 * S)
+    if subtitulo:
+        draw.text((card_x1 + pad_h, y_cursor), subtitulo,
+            font=get_font(int(20 * S), bold=False), fill=(255, 255, 255, 230))
+        y_cursor += int(28 * S)
+    if seg_label:
+        draw.text((card_x1 + pad_h, y_cursor), seg_label,
+            font=get_font(int(13 * S), bold=False), fill=(255, 255, 255, 140))
 
+    # Foto do carro
     foto = baixar_imagem_pil(imagem_url)
     if foto:
-        foto.thumbnail((360, 190))
-        bg.paste(foto, (card_x2 - foto.width - 28, card_y1 + 30), foto)
+        foto.thumbnail((int(380 * S), int(200 * S)))
+        bg.paste(foto, (card_x2 - foto.width - pad_h, card_y1 + int(10 * S)), foto)
 
-    body_top = card_y1 + header_h + 24
-    draw.text((card_x1 + 22, body_top), "Planos Disponíveis:", font=get_font(34, bold=False), fill=(66, 66, 66, 255))
+    # Caption "PLANOS DISPONÍVEIS" — centralizado
+    body_top     = card_y1 + header_h + int(24 * S)
+    font_caption = get_font(int(13 * S), bold=True)
+    w_cap, _     = medir_texto(draw, "Planos Disponíveis:", font_caption)
+    draw.text(((largura - w_cap) // 2, body_top), "Planos Disponíveis:",
+        font=font_caption, fill=(66, 66, 66, 255))
 
-    grid_top   = body_top + 62
-    grid_left  = card_x1 + 22
-    grid_right = card_x2 - 22
-    col_w      = int((grid_right - grid_left - gap * (qtd_colunas - 1)) / qtd_colunas)
+    # Grid — CSS usa minmax(140px, 220px) justify-content: center
+    # Escala: 220px CSS → int(220 * S) PNG
+    grid_top   = body_top + int(42 * S)
+    col_w      = min(int(220 * S), int((card_x2 - card_x1 - gap * (qtd_colunas - 1)) / qtd_colunas))
+    grid_total = qtd_colunas * col_w + gap * (qtd_colunas - 1)
+    grid_left  = (largura - grid_total) // 2
 
     for i, (prazo, itens) in enumerate(planos.items()):
         x = grid_left + i * (col_w + gap)
+
+        # Prazo
         draw_text_center(draw, x, x + col_w, grid_top, f"{prazo} meses",
             get_font(prazo_font_sz, bold=True), AZUL_CARRERA + (255,))
 
-        bloco_y = grid_top + prazo_area_h
-        draw.rounded_rectangle([x, bloco_y, x + col_w, bloco_y + bloco_h],
-            radius=22, fill=(56, 56, 56, 235))
+        # Bloco escuro — altura adaptada ao número de itens desta coluna
+        bloco_y     = grid_top + prazo_area_h
+        bloco_h_col = bloco_padding * 2 + (len(itens) * linha_gap)
+        draw.rounded_rectangle([x, bloco_y, x + col_w, bloco_y + bloco_h_col],
+            radius=int(20 * S), fill=(33, 49, 68, 230))
 
-        cursor_y = bloco_y + bloco_padding_top
+        cursor_y = bloco_y + bloco_padding
         for item in itens:
             draw_text_center(draw, x, x + col_w, cursor_y,
-                f"{item['km']} km/mês", get_font(km_font_sz), (240, 240, 240, 255))
-            draw_text_center(draw, x, x + col_w, cursor_y + 24,
+                f"{item['km']} km/mês", get_font(km_font_sz), (200, 210, 220, 255))
+            draw_text_center(draw, x, x + col_w, cursor_y + km_font_sz + 4,
                 f"{item['valor']}", get_font(valor_font_sz, bold=True), (255, 255, 255, 255))
             cursor_y += linha_gap
 
-    footer_y = grid_top + prazo_area_h + bloco_h + footer_top_gap
+    # Footer
+    footer_y = grid_top + prazo_area_h + bloco_h + int(34 * S)
     validade  = data_validade_mes_atual()
 
-    draw.text((card_x1 + 22, footer_y),
-        "A cor escolhida pode alterar o preço. Consulte disponibilidade e condições vigentes.",
-        font=get_font(22), fill=(66, 66, 66, 255))
-    draw.text((card_x1 + 22, footer_y + 34),
-        f"Planos válidos até {validade}, valores sujeitos a alteração.",
-        font=get_font(22, bold=True), fill=(66, 66, 66, 255))
+    aviso    = f"A cor escolhida pode alterar o preço. Ofertas válidas para {validade}"
+    font_av  = get_font(int(13 * S))
+    w_av, _  = medir_texto(draw, aviso, font_av)
+    draw.text(((largura - w_av) // 2, footer_y), aviso, font=font_av, fill=(120, 130, 140, 255))
 
-    icon  = baixar_imagem_pil(URL_ICON_WPP)
-    y_tel = footer_y + 72
-    x_tel = card_x1 + 21
+    # Linha separadora
+    linha_y = footer_y + int(36 * S)
+    draw.line([(card_x1 + int(22 * S), linha_y), (card_x2 - int(22 * S), linha_y)],
+        fill=(*AZUL_CARRERA, 60), width=2)
+
+    # WhatsApp + telefone — centralização precisa
+    font_tel      = get_font(int(26 * S), bold=True)
+    bbox_tel      = draw.textbbox((0, 0), "4003.7214", font=font_tel)
+    w_tel         = bbox_tel[2] - bbox_tel[0]
+    h_tel         = bbox_tel[3] - bbox_tel[1]
+    ascent_offset = bbox_tel[1]  # offset do topo do bbox ao baseline real
+
+    y_tel  = linha_y + int(18 * S)
+    x_tel  = card_x1 + int(24 * S)
+
+    icon = baixar_imagem_pil(URL_ICON_WPP)
     if icon:
-        icon.thumbnail((34, 34))
-        bg.paste(icon, (x_tel, y_tel - 2), icon)
-        x_tel += 44
-    draw.text((x_tel, y_tel), "4003-7214", font=get_font(34, bold=True), fill=AZUL_CARRERA + (255,))
+        icon_size = h_tel + int(4 * S)
+        icon.thumbnail((icon_size, icon_size))
+        # centraliza o ícone com o centro visual do texto
+        icon_y = y_tel + ascent_offset + (h_tel - icon.height) // 2
+        bg.paste(icon, (x_tel, icon_y), icon)
+        x_tel += icon.width + int(10 * S)
 
+    draw.text((x_tel, y_tel), "4003.7214", font=font_tel, fill=AZUL_CARRERA + (255,))
+
+    # Logo
     logo = baixar_imagem_pil(URL_LOGO_CARRERA)
     if logo:
-        logo.thumbnail((220, 70))
-        bg.paste(logo, (card_x2 - logo.width - 22, footer_y + 58), logo)
+        logo.thumbnail((int(90 * S), int(50 * S)))
+        logo_x = card_x2 - logo.width - int(24 * S)
+        logo_y = linha_y + int(10 * S)
+        bg.paste(logo, (logo_x, logo_y), logo)
 
     out = BytesIO()
     bg.convert("RGB").save(out, format="PNG")
@@ -534,8 +594,8 @@ if modo_manutencao:
 # =========================================================
 # ABAS PRINCIPAIS
 # =========================================================
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🚗 Propostas", "📊 Relatório", "🛠️ Gerenciamento", "🧮 Simulador", "🔍 Comparativo"
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🚗 Propostas", "📊 Relatório", "🛠️ Gerenciamento", "🧮 Simulador", "🔍 Comparativo", "📦 Estoque"
 ])
 
 
@@ -566,7 +626,7 @@ with tab1:
                     st.warning(f"Sem veículos para {segmento}.")
                     continue
 
-                veiculo = st.selectbox("Veículo", veiculos, key=f"vei_{i}", index=1)
+                veiculo = st.selectbox("Veículo", veiculos, key=f"vei_{i}", index=0)
                 dados   = obter_dados_veiculo(df, veiculo)
 
                 if dados is None:
@@ -766,17 +826,32 @@ with tab4:
     with col2:
         modelo_sim = st.selectbox("Modelo", modelos_disponiveis, key="sim_modelo", index=0)
 
-    if st.button("✨ Montar card do plano", use_container_width=True):
-        planos, imagem = extrair_planos_modelo(df_sim, modelo_sim)
+    col_btn1, col_btn2 = st.columns(2)
 
+    with col_btn1:
+        gerar = st.button("✨ Montar card do plano", use_container_width=True)
+
+    if gerar:
+        planos, imagem, nome_mod, versao_mod = extrair_planos_modelo(df_sim, modelo_sim)
         if not planos:
             st.warning("Não foram encontrados planos para este modelo.")
         else:
-            html_card   = gerar_card_plano_html(modelo_sim, planos, imagem, segmento_sim)
-            altura_card = 760 if len(planos) <= 3 else 920 if len(planos) <= 5 else 1120
-            components.html(html_card, height=altura_card, scrolling=True)
+            st.session_state["sim_planos"]     = planos
+            st.session_state["sim_imagem"]     = imagem
+            st.session_state["sim_nome_mod"]   = nome_mod
+            st.session_state["sim_versao_mod"] = versao_mod
+            st.session_state["sim_seg_salvo"]  = segmento_sim
 
-            png_bytes = gerar_card_png(modelo_sim, planos, imagem, segmento_sim)
+    if "sim_planos" in st.session_state and st.session_state["sim_planos"]:
+        planos     = st.session_state["sim_planos"]
+        imagem     = st.session_state["sim_imagem"]
+        nome_mod   = st.session_state["sim_nome_mod"]
+        versao_mod = st.session_state["sim_versao_mod"]
+        seg        = st.session_state["sim_seg_salvo"]
+
+        png_bytes = gerar_card_png(nome_mod, planos, imagem, seg, versao_mod)
+
+        with col_btn2:
             st.download_button(
                 "📥 Baixar card em PNG",
                 data=png_bytes,
@@ -785,16 +860,16 @@ with tab4:
                 use_container_width=True
             )
 
-            st.divider()
+        st.divider()
 
-            with st.expander("Ver estrutura dos planos encontrados"):
-                linhas = [
-                    {"Prazo": prazo, "KM por mês": item["km"], "Valor": item["valor"]}
-                    for prazo, itens in planos.items()
-                    for item in itens
-                ]
-                if linhas:
-                    st.dataframe(pd.DataFrame(linhas), width="stretch", hide_index=True)
+        with st.expander("Ver estrutura dos planos encontrados"):
+            linhas = [
+                {"Prazo": prazo, "KM por mês": item["km"], "Valor": item["valor"]}
+                for prazo, itens in planos.items()
+                for item in itens
+            ]
+            if linhas:
+                st.dataframe(pd.DataFrame(linhas), width="stretch", hide_index=True)
 
 
 
@@ -925,3 +1000,143 @@ with tab5:
             st.success(f"{len(df_resultado)} oferta(s) encontrada(s)")
 
             st.dataframe(df_exibir, width="stretch", hide_index=True)
+
+# =========================================================
+# ABA 6 - ESTOQUE
+# =========================================================
+with tab6:
+    st.title("📦 Estoque — Veículos a Pronta Entrega")
+    st.caption("Visualize os veículos disponíveis em estoque. Utilize os filtros para refinar a busca.")
+
+    URL_ESTOQUE = "https://docs.google.com/spreadsheets/d/1BpAtiXz4AEuQg4kVx8OFonohPlvbScdOgWPIZRxQnxo/export?format=csv&gid=0"
+
+    @st.cache_data(ttl=300)
+    def carregar_estoque():
+        df = pd.read_csv(URL_ESTOQUE)
+        df.columns = (
+            df.columns
+            .str.strip()
+            .str.lower()
+            .str.normalize("NFKD")
+            .str.encode("ascii", errors="ignore")
+            .str.decode("utf-8")
+            .str.replace(" ", "", regex=False)
+            .str.replace(":", "", regex=False)
+        )
+        return df
+
+    col_reload, _ = st.columns([1, 8])
+    with col_reload:
+        if st.button("🔄 Atualizar", key="btn_atualizar_estoque"):
+            carregar_estoque.clear()
+            st.rerun()
+
+    try:
+        df_estoque = carregar_estoque()
+    except Exception as e:
+        st.error(f"Erro ao carregar base de estoque: {e}")
+        st.stop()
+
+    if df_estoque.empty:
+        st.warning("Nenhum veículo encontrado na base de estoque.")
+        st.stop()
+
+    # -------------------------
+    # FILTROS
+    # -------------------------
+    col1, col2, col3, col4 = st.columns(4)
+
+    def opcoes(col):
+        if col in df_estoque.columns:
+            return ["Todos"] + sorted(df_estoque[col].dropna().astype(str).unique().tolist())
+        return ["Todos"]
+
+    with col1:
+        fab_opts = opcoes("fabricante")
+        fabricante_sel = st.selectbox("Fabricante", fab_opts, key="est_fabricante")
+
+    with col2:
+        mod_opts = opcoes("modelo")
+        modelo_sel = st.selectbox("Modelo", mod_opts, key="est_modelo")
+
+    with col3:
+        cor_opts = opcoes("cor")
+        cor_sel = st.selectbox("Cor", cor_opts, key="est_cor")
+
+    with col4:
+        loc_opts = opcoes("locadora")
+        locadora_sel = st.selectbox("Locadora", loc_opts, key="est_locadora")
+
+    # -------------------------
+    # APLICAR FILTROS
+    # -------------------------
+    df_filtrado = df_estoque.copy()
+
+    if fabricante_sel != "Todos" and "fabricante" in df_filtrado.columns:
+        df_filtrado = df_filtrado[df_filtrado["fabricante"].astype(str) == fabricante_sel]
+
+    if modelo_sel != "Todos" and "modelo" in df_filtrado.columns:
+        df_filtrado = df_filtrado[df_filtrado["modelo"].astype(str) == modelo_sel]
+
+    if cor_sel != "Todos" and "cor" in df_filtrado.columns:
+        df_filtrado = df_filtrado[df_filtrado["cor"].astype(str) == cor_sel]
+
+    if locadora_sel != "Todos" and "locadora" in df_filtrado.columns:
+        df_filtrado = df_filtrado[df_filtrado["locadora"].astype(str) == locadora_sel]
+
+    # -------------------------
+    # COLUNAS A EXIBIR
+    # -------------------------
+    colunas_exibir = [
+        "fabricante", "modelo", "cor", "locadora", "status",
+        "local atual", "dataChegada", "idade", "pedido",
+        "consultor", "cliente", "chassi", "placa",
+        "rodizio", "anoxmodelo", "km",
+        "loja de entrega", "data entrega", "hora entrega",
+        "entregador", "obs"
+    ]
+
+    # Usa só as que existem na base
+    colunas_disponiveis = [c for c in df_filtrado.columns if c in [
+        "fabricante", "modelo", "cor", "locadora", "status",
+        "localatual", "datachegada", "idade", "pedido",
+        "consultor", "cliente", "chassi", "placa",
+        "rodizio", "anoxmodelo", "km",
+        "lojadeentrega", "dataentrega", "horaentrega",
+        "entregador", "obs"
+    ]]
+
+    # Se não encontrou nenhuma coluna mapeada, mostra todas
+    df_show = df_filtrado[colunas_disponiveis] if colunas_disponiveis else df_filtrado
+
+    # Renomeia para exibição amigável
+    rename_map = {
+        "fabricante":   "Fabricante",
+        "modelo":       "Modelo",
+        "cor":          "Cor",
+        "locadora":     "Locadora",
+        "status":       "Status",
+        "localatual":   "Local Atual",
+        "datachegada":  "Data Chegada",
+        "idade":        "Idade",
+        "pedido":       "Pedido",
+        "consultor":    "Consultor",
+        "cliente":      "Cliente",
+        "chassi":       "Chassi",
+        "placa":        "Placa",
+        "rodizio":      "Rodízio",
+        "anoxmodelo":   "Ano x Modelo",
+        "km":           "KM",
+        "lojadeentrega":"Loja de Entrega",
+        "dataentrega":  "Data Entrega",
+        "horaentrega":  "Hora Entrega",
+        "entregador":   "Entregador",
+        "obs":          "OBS"
+    }
+
+    df_show = df_show.rename(columns=rename_map)
+
+    st.markdown(f"**{len(df_filtrado)} veículo(s) encontrado(s)**")
+    st.divider()
+
+    st.dataframe(df_show, width="stretch", hide_index=True)
