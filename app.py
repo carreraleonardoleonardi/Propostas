@@ -626,7 +626,7 @@ with tab1:
                     st.warning(f"Sem veículos para {segmento}.")
                     continue
 
-                veiculo = st.selectbox("Veículo", veiculos, key=f"vei_{i}", index=0)
+                veiculo = st.selectbox("Veículo", veiculos, key=f"vei_{i}", index=1 if len(veiculos) > 1 else 0)
                 dados   = obter_dados_veiculo(df, veiculo)
 
                 if dados is None:
