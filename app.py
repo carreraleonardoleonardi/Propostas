@@ -340,7 +340,7 @@ def gerar_card_plano_html(modelo, planos, imagem_url, segmento="", versao=""):
                 <div class="plano-grid">{html_planos}</div>
             </div>
             <div class="plano-footer">
-                <div class="plano-aviso">A cor escolhida pode alterar o preço. Ofertas válidas para {validade}</div>
+                <div class="plano-aviso">A cor escolhida pode alterar o preço. Ofertas válidas até {validade}</div>
                 <div class="plano-contato">
                     <div class="plano-telefone-wrap">
                         <img class="plano-wpp" src="{URL_ICON_WPP}" alt="WhatsApp">
@@ -474,7 +474,7 @@ def gerar_card_png(modelo, planos, imagem_url, segmento="", versao=""):
     footer_y = grid_top + prazo_area_h + bloco_h + int(34 * S)
     validade  = data_validade_mes_atual()
 
-    aviso    = f"A cor escolhida pode alterar o preço. Ofertas válidas para {validade}"
+    aviso    = f"A cor escolhida pode alterar o preço. Ofertas válidas até {validade}"
     font_av  = get_font(int(13 * S))
     w_av, _  = medir_texto(draw, aviso, font_av)
     draw.text(((largura - w_av) // 2, footer_y), aviso, font=font_av, fill=(120, 130, 140, 255))
