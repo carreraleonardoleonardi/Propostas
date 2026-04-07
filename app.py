@@ -803,34 +803,32 @@ with tab4:
 # =========================================================
 with tab5:
     st.title("🔍 Comparativo de Planos")
-    st.caption("Filtre por segmento, prazo, KM e faixa de preço para comparar ofertas.")
+    st.caption("Filtre por segmento, prazo, KM e faixa de preço. Deixe qualquer filtro vazio para buscar em todos.")
 
-    # Linha 1 — Segmento (ocupa largura total)
+    # Segmento
     segmentos_selecionados = st.multiselect(
-        "Segmento (deixe vazio para buscar em todos)",
+        "Segmento",
         options=list(BASES.keys()),
         default=[],
-        max_selections=4,
         placeholder="Todos os segmentos"
     )
 
-    # Linha 2 — demais filtros
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         prazos_selecionados = st.multiselect(
             "Prazo (meses)",
             options=[12, 18, 24, 36, 48],
-            default=[24],
-            max_selections=2
+            default=[],
+            placeholder="Todos os prazos"
         )
 
     with col2:
         kms_selecionados = st.multiselect(
             "KM por mês",
             options=[500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000],
-            default=[1000],
-            max_selections=2
+            default=[],
+            placeholder="Todos os KMs"
         )
 
     with col3:
@@ -847,7 +845,7 @@ with tab5:
             "Preço máximo (R$)",
             min_value=0,
             max_value=99999,
-            value=10000,
+            value=99999,
             step=100
         )
 
@@ -855,19 +853,10 @@ with tab5:
 
     if st.button("🔍 Buscar ofertas", use_container_width=True):
 
-        if not prazos_selecionados:
-            st.warning("Selecione ao menos um prazo.")
-            st.stop()
-
-        if not kms_selecionados:
-            st.warning("Selecione ao menos um KM.")
-            st.stop()
-
-        # Se nenhum segmento selecionado, busca em todos
-        bases_busca = (
-            {k: v for k, v in BASES.items() if k in segmentos_selecionados}
-            if segmentos_selecionados else BASES
-        )
+        # Vazio = todos
+        bases_busca  = {k: v for k, v in BASES.items() if k in segmentos_selecionados} if segmentos_selecionados else BASES
+        prazos_busca = prazos_selecionados if prazos_selecionados else [12, 18, 24, 36, 48]
+        kms_busca    = kms_selecionados    if kms_selecionados    else [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
 
         resultados = []
 
@@ -884,8 +873,8 @@ with tab5:
                         if pd.isna(nome) or not str(nome).strip():
                             continue
 
-                        for prazo in prazos_selecionados:
-                            for km in kms_selecionados:
+                        for prazo in prazos_busca:
+                            for km in kms_busca:
                                 col_preco = f"preco{km}{prazo}"
 
                                 if col_preco not in df_comp.columns:
