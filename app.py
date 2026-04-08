@@ -255,7 +255,7 @@ def gerar_card_plano_html(modelo, planos, imagem_url, segmento="", versao=""):
     qtd_colunas = max(1, len(planos))
     titulo      = str(modelo).strip().title()
     subtitulo   = str(versao).strip()
-    seg_label   = str(segmento).strip()
+    seg_label   = "GM Fleet" if str(segmento).strip().startswith("GM Fleet") else str(segmento).strip()
 
     if qtd_colunas <= 3:
         prazo_font = 26; km_font = 14; valor_font = 18
@@ -415,7 +415,7 @@ def gerar_card_png(modelo, planos, imagem_url, segmento="", versao=""):
     # Textos do header
     titulo    = str(modelo).strip().title()
     subtitulo = str(versao).strip()
-    seg_label = str(segmento).strip()
+    seg_label = "GM Fleet" if str(segmento).strip().startswith("GM Fleet") else str(segmento).strip()
 
     pad_h = int(28 * S)
     draw.text((card_x1 + pad_h, card_y1 + pad_h), titulo,
@@ -474,10 +474,15 @@ def gerar_card_png(modelo, planos, imagem_url, segmento="", versao=""):
     footer_y = grid_top + prazo_area_h + bloco_h + int(34 * S)
     validade  = data_validade_mes_atual()
 
-    aviso    = f"A cor escolhida pode alterar o preço. Ofertas válidas até {validade}"
     font_av  = get_font(int(13 * S))
+    aviso    = f"A cor escolhida pode alterar o preço. Ofertas válidas até {validade}"
+    geracao = datetime.datetime.now().strftime("Gerado em: %d/%m/%Y %H:%M")
+    
     w_av, _  = medir_texto(draw, aviso, font_av)
     draw.text(((largura - w_av) // 2, footer_y), aviso, font=font_av, fill=(120, 130, 140, 255))
+
+    w_ger, _ = medir_texto(draw, geracao, font_av)
+    draw.text(((largura - w_ger) // 2, footer_y + int(20 * S)), geracao, font=font_av, fill=(160, 170, 180, 255))
 
     # Linha separadora
     linha_y = footer_y + int(36 * S)
