@@ -25,7 +25,8 @@ BASES = {
     "GM Fleet Rede": "https://docs.google.com/spreadsheets/d/1AZiK2C7FjZ_-lNSJ-3fICfWB7hzRnEU8a_WCGgmubak/export?format=csv&gid=1332991446",
     "GM Fleet Estoque": "https://docs.google.com/spreadsheets/d/1yDTeD6pH-TSUEo_F21bkej_oxpKn2fTZp_B15FSFgpQ/export?format=csv&gid=1332991446#gid=1332991446",
     "GM Fleet PF": "https://docs.google.com/spreadsheets/d/153a41nRCYW65S1AtODo3u9aIJp2co20K2lAexpYHoGc/export?format=csv&gid=1332991446",
-    "GM Fleet Elétricos": "https://docs.google.com/spreadsheets/d/1-Tnbo6s8QXew8gz8xAWwklusMgtB3KbfRU9DYuA90NI/export?format=csv&gid=1332991446"
+    "GM Fleet Elétricos": "https://docs.google.com/spreadsheets/d/1-Tnbo6s8QXew8gz8xAWwklusMgtB3KbfRU9DYuA90NI/export?format=csv&gid=1332991446",
+    "Arval": "https://docs.google.com/spreadsheets/d/12fxyRpNCbUB73I5-rjCEs3d_tpg0gYw0Ihd87KiCWOg/export?format=csv&gid=691004799#gid=691004799"
 }
 
 # URL da planilha de relatório/dashboard
