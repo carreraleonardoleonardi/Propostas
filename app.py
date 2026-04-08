@@ -22,7 +22,8 @@ from data import (
     obter_veiculos,
     obter_dados_veiculo,
     calcular_valor,
-    extrair_planos_modelo
+    extrair_planos_modelo,
+    _is_disponivel        # ← adiciona esta linha
 )
 
 
@@ -952,6 +953,12 @@ with tab5:
                         nome = row.get("nome", "")
                         if pd.isna(nome) or not str(nome).strip():
                             continue
+
+                        # Filtra indisponíveis
+                        if "disponibilidade" in df_comp.columns:
+                            disp = row.get("disponibilidade", True)
+                            if not _is_disponivel(disp):
+                                continue
 
                         for prazo in prazos_busca:
                             for km in kms_busca:
