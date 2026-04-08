@@ -41,9 +41,14 @@ def _is_disponivel(valor) -> bool:
     Aceita: True (bool), 'true', '1', 'yes', 'sim', 'verdadeiro'.
     Ausência da coluna também é tratada como disponível.
     """
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return True  # célula vazia = disponível
     if isinstance(valor, bool):
         return valor
-    return str(valor).strip().lower() in {"true", "1", "yes", "sim", "verdadeiro"}
+    texto = str(valor).strip().lower()
+    if texto in {"", "nan", "none"}:
+        return True  # célula vazia = disponível
+    return texto in {"true", "1", "yes", "sim", "verdadeiro"}
 
 
 # =========================================================
