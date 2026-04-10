@@ -33,18 +33,18 @@ GV_COLUNAS = [
 
 STATUS_CORES = {
     "Disponível":             "#22c55e",
-    "Trânsito Disponível":    "#3b82f6",
+    "Trânsito Disponível":    "#3bf6d7",
     "Trânsito Vendido":       "#8b5cf6",
     "Aguardando Atribuição":  "#eab308",
     "Aguardando Agendamento": "#f97316",
-    "Agendado":               "#06b6d4",
-    "Entregue":               "#10b981",
-    "Reagendar":              "#f59e0b",
+    "Agendado":               "#d406a7",
+    "Entregue":               "#10b910",
+    "Reagendar":              "#f5970b",
     "Avariado":               "#ef4444",
     "Distrato":               "#6b7280",
-    "Remoção":                "#64748b",
+    "Remoção":                "#8b6464",
     "Reserva Temporária":     "#a855f7",
-    "Evento Signature":       "#ec4899",
+    "Evento Signature":       "#487cec",
 }
 
 CSS = """
