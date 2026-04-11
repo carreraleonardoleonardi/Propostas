@@ -33,18 +33,18 @@ GV_COLUNAS = [
 
 STATUS_CORES = {
     "Disponível":             "#22c55e",
-    "Trânsito Disponível":    "#3bf6d7",
+    "Trânsito Disponível":    "#3b82f6",
     "Trânsito Vendido":       "#8b5cf6",
     "Aguardando Atribuição":  "#eab308",
     "Aguardando Agendamento": "#f97316",
-    "Agendado":               "#d406a7",
-    "Entregue":               "#10b910",
-    "Reagendar":              "#f5970b",
+    "Agendado":               "#06b6d4",
+    "Entregue":               "#10b981",
+    "Reagendar":              "#f59e0b",
     "Avariado":               "#ef4444",
     "Distrato":               "#6b7280",
-    "Remoção":                "#8b6464",
+    "Remoção":                "#64748b",
     "Reserva Temporária":     "#a855f7",
-    "Evento Signature":       "#487cec",
+    "Evento Signature":       "#ec4899",
 }
 
 CSS = """
@@ -364,38 +364,196 @@ def render():
             if flt_loc != "Todos": df_view = df_view[df_view["locadora"]   == flt_loc]
             if flt_con != "Todos": df_view = df_view[df_view["consultor"]  == flt_con]
 
-            st.markdown(f"**{len(df_view)} veículo(s)**")
+            st.markdown(f"**{len(df_view)} veículo(s)** &nbsp; <span style='font-size:12px;color:#94a3b8'>— clique em um card para ver todos os detalhes</span>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
 
-            # Cards de veículos
-            for _, row in df_view.iterrows():
+            # Gera todos os cards com expansão via JS puro
+            cards_html = """
+<style>
+.vcard {
+    background:#fff;
+    border:1px solid #e2e8f0;
+    border-radius:14px;
+    margin-bottom:10px;
+    overflow:hidden;
+    box-shadow:0 1px 4px rgba(0,0,0,0.05);
+    transition:box-shadow .2s, transform .15s;
+    cursor:pointer;
+}
+.vcard:hover { box-shadow:0 4px 18px rgba(0,0,0,0.10); transform:translateY(-1px); }
+.vcard-header {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 20px;
+    gap:12px;
+    flex-wrap:wrap;
+}
+.vcard-left { display:flex; align-items:center; gap:14px; flex:1; min-width:0; }
+.vcard-borda { width:5px; min-height:48px; border-radius:4px; flex-shrink:0; }
+.vcard-modelo { font-size:15px; font-weight:700; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.vcard-sub { font-size:12px; color:#64748b; margin-top:2px; display:flex; gap:6px; flex-wrap:wrap; }
+.vtag { background:#f1f5f9; border-radius:5px; padding:2px 7px; font-size:11px; color:#475569; }
+.vcard-right { display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0; }
+.vbadge { padding:3px 12px; border-radius:999px; font-size:11px; font-weight:700; color:#fff; white-space:nowrap; }
+.vcard-idade { font-size:11px; color:#94a3b8; }
+.vcard-chevron { font-size:14px; color:#94a3b8; margin-left:8px; transition:transform .25s; }
+.vcard-detail {
+    display:none;
+    border-top:1px solid #f1f5f9;
+    background:#fafbfc;
+    padding:20px 24px;
+    animation: fadeIn .2s ease;
+}
+@keyframes fadeIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+.vcard.open .vcard-detail { display:block; }
+.vcard.open .vcard-chevron { transform:rotate(180deg); }
+.vcard.open { box-shadow:0 6px 24px rgba(0,0,0,0.12); }
+.vdetail-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));
+    gap:16px 24px;
+    margin-bottom:16px;
+}
+.vdetail-section { margin-bottom:16px; }
+.vdetail-section-title { font-size:10px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.8px; margin-bottom:10px; padding-bottom:4px; border-bottom:1px solid #e2e8f0; }
+.vfield { display:flex; flex-direction:column; gap:2px; }
+.vfield-lbl { font-size:10px; color:#94a3b8; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+.vfield-val { font-size:13px; color:#1e293b; font-weight:500; }
+.vfield-val.empty { color:#cbd5e1; font-style:italic; }
+.vclose-btn {
+    display:inline-flex; align-items:center; gap:6px;
+    background:#f1f5f9; border:none; border-radius:8px;
+    padding:6px 14px; font-size:12px; color:#475569;
+    cursor:pointer; font-weight:600; margin-top:4px;
+    transition:background .15s;
+}
+.vclose-btn:hover { background:#e2e8f0; }
+</style>
+<script>
+function toggleCard(id) {
+    var card = document.getElementById(id);
+    card.classList.toggle('open');
+}
+function closeCard(id, e) {
+    e.stopPropagation();
+    document.getElementById(id).classList.remove('open');
+}
+</script>
+"""
+
+            def safe(v):
+                s = str(v).strip()
+                return s if s and s not in ("nan","None","NaT","") else "—"
+
+            def vfield(label, val):
+                v = safe(val)
+                cls = "empty" if v == "—" else ""
+                return f'<div class="vfield"><div class="vfield-lbl">{label}</div><div class="vfield-val {cls}">{v}</div></div>'
+
+            for i, (_, row) in enumerate(df_view.iterrows()):
                 idade = row.get("_idade", None)
-                farol = farol_idade(idade)
-                idade_txt = f"{farol} {idade}d" if idade is not None else "⚪ —"
+                fi    = farol_idade(idade)
+                id_txt = f"{fi} {idade}d" if idade is not None else "⚪ —"
                 status = str(row.get("status",""))
-                cor_borda = STATUS_CORES.get(status, "#e2e8f0")
+                cor    = STATUS_CORES.get(status, "#94a3b8")
+                card_id = f"vcard_{i}"
 
-                st.markdown(f"""
-                <div class="gv-card" style="border-left: 4px solid {cor_borda}">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
-                        <div>
-                            <div class="gv-veiculo-title">{row.get("modelo","—")} &nbsp; <span style="font-weight:400;color:#64748b;font-size:13px">{row.get("fabricante","")}</span></div>
-                            <div class="gv-veiculo-sub">
-                                <span class="gv-tag">🔑 {row.get("chassi","—")}</span>
-                                <span class="gv-tag">🪪 {row.get("placa","—")}</span>
-                                <span class="gv-tag">🎨 {row.get("cor","—")}</span>
-                                <span class="gv-tag">🏢 {row.get("locadora","—")}</span>
-                            </div>
-                        </div>
-                        <div style="text-align:right">
-                            {badge_status(status)}
-                            <div style="font-size:12px;color:#94a3b8;margin-top:4px;">{idade_txt} &nbsp;·&nbsp; {row.get("local_atual","—")}</div>
-                        </div>
-                    </div>
-                    {f'<div style="margin-top:8px;font-size:12px;color:#475569">👤 <b>{row.get("cliente","—")}</b> &nbsp;·&nbsp; Consultor: {row.get("consultor","—")}</div>' if row.get("cliente") and not pd.isna(row.get("cliente","")) else ""}
-                </div>
-                """, unsafe_allow_html=True)
+                cards_html += f"""
+<div class="vcard" id="{card_id}" onclick="toggleCard('{card_id}')">
+  <div class="vcard-header">
+    <div class="vcard-left">
+      <div class="vcard-borda" style="background:{cor}"></div>
+      <div>
+        <div class="vcard-modelo">{safe(row.get('modelo'))} &nbsp;<span style="font-weight:400;color:#94a3b8;font-size:13px">{safe(row.get('fabricante'))}</span></div>
+        <div class="vcard-sub">
+          <span class="vtag">🔑 {safe(row.get('chassi'))}</span>
+          <span class="vtag">🪪 {safe(row.get('placa'))}</span>
+          <span class="vtag">🎨 {safe(row.get('cor'))}</span>
+          <span class="vtag">🏢 {safe(row.get('locadora'))}</span>
+        </div>
+      </div>
+    </div>
+    <div class="vcard-right">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="vbadge" style="background:{cor}">{status}</span>
+        <span class="vcard-chevron">▼</span>
+      </div>
+      <div class="vcard-idade">{id_txt} · {safe(row.get('local_atual'))}</div>
+      {'<div style="font-size:12px;color:#475569;margin-top:2px">👤 ' + safe(row.get('cliente')) + ' · ' + safe(row.get('consultor')) + '</div>' if safe(row.get('cliente')) != '—' else ''}
+    </div>
+  </div>
+
+  <div class="vcard-detail">
+
+    <div class="vdetail-section">
+      <div class="vdetail-section-title">🔍 Identificação</div>
+      <div class="vdetail-grid">
+        {vfield('Fabricante', row.get('fabricante'))}
+        {vfield('Modelo', row.get('modelo'))}
+        {vfield('Chassi', row.get('chassi'))}
+        {vfield('Placa', row.get('placa'))}
+        {vfield('Cor', row.get('cor'))}
+        {vfield('Combustível', row.get('combustivel'))}
+        {vfield('Ano Fabricação', row.get('ano_fabricacao'))}
+        {vfield('Ano Modelo', row.get('ano_modelo'))}
+        {vfield('Opcionais', row.get('opcionais'))}
+      </div>
+    </div>
+
+    <div class="vdetail-section">
+      <div class="vdetail-section-title">🏢 Operacional</div>
+      <div class="vdetail-grid">
+        {vfield('Status', row.get('status'))}
+        {vfield('Locadora', row.get('locadora'))}
+        {vfield('Consultor', row.get('consultor'))}
+        {vfield('Cliente', row.get('cliente'))}
+        {vfield('Nº Pedido', row.get('pedido'))}
+        {vfield('Local Atual', row.get('local_atual'))}
+        {vfield('Com Avaria?', row.get('avaria'))}
+        {vfield('Obs. Avaria', row.get('obs_avaria'))}
+      </div>
+    </div>
+
+    <div class="vdetail-section">
+      <div class="vdetail-section-title">📅 Datas e Entrega</div>
+      <div class="vdetail-grid">
+        {vfield('Data Chegada', row.get('data_chegada'))}
+        {vfield('Data Entrega', row.get('data_entrega'))}
+        {vfield('Hora Entrega', row.get('hora_entrega'))}
+        {vfield('Loja de Entrega', row.get('loja_entrega'))}
+        {vfield('Entregador', row.get('entregador'))}
+        {vfield('Idade no Estoque', f"{idade} dias" if idade is not None else "—")}
+      </div>
+    </div>
+
+    <div class="vdetail-section">
+      <div class="vdetail-section-title">💰 Financeiro</div>
+      <div class="vdetail-grid">
+        {vfield('Valor NF', row.get('valor_nf'))}
+        {vfield('Margem', row.get('margem'))}
+        {vfield('Comissão', row.get('comissao'))}
+      </div>
+    </div>
+
+    <div class="vdetail-section">
+      <div class="vdetail-section-title">🕐 Auditoria</div>
+      <div class="vdetail-grid">
+        {vfield('ID', row.get('id'))}
+        {vfield('Criado em', row.get('criado_em'))}
+        {vfield('Atualizado em', row.get('atualizado_em'))}
+        {vfield('Atualizado por', row.get('atualizado_por'))}
+      </div>
+    </div>
+
+    <button class="vclose-btn" onclick="closeCard('{card_id}', event)">▲ Fechar</button>
+  </div>
+</div>"""
+
+            st.markdown(cards_html, unsafe_allow_html=True)
 
             if autenticado:
+                st.markdown("<br>", unsafe_allow_html=True)
                 csv_exp = df_view.to_csv(index=False).encode("utf-8")
                 st.download_button("📥 Exportar CSV", data=csv_exp, file_name="veiculos.csv", mime="text/csv")
 
