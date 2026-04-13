@@ -33,9 +33,23 @@ def salvar_proposta(cotacoes, vendedor, cliente):
     return proposta_id
 
 
-def render(vendedor: str, cliente: str, qtd: int, progress_container):
+def render():
     st.title("🚗 Gerador de Propostas da Carrera Signature")
 
+    # ── Dados da Proposta ────────────────────────────────
+    with st.container():
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            vendedor = st.text_input("Consultor *", key="prop_vendedor")
+        with d2:
+            cliente = st.text_input("Cliente *", key="prop_cliente")
+        with d3:
+            qtd = st.selectbox("Qtd ofertas", [1, 2, 3], index=2, key="prop_qtd")
+
+    progress_container = st.empty()
+    st.divider()
+
+    # ── Ofertas ──────────────────────────────────────────
     cotacoes = []
     cols     = st.columns(3)
 

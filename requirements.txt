@@ -4,3 +4,4 @@ fpdf2
 requests
 openpyxl
 pillow
+extra-streamlit-components

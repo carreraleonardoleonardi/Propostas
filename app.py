@@ -10,6 +10,11 @@ from PIL import Image, ImageDraw, ImageFont
 import requests
 
 from utils import formatar_valor_brl, valor_para_float, data_validade_mes_atual
+from autenticacao import (
+    render_login, render_sidebar_user, render_sidebar_sair, render_usuarios,
+    is_logado, is_staff, abas_permitidas,
+    carregar_sessao, salvar_sessao
+)
 
 # Páginas
 from pages.propostas        import render as render_propostas
@@ -51,6 +56,8 @@ footer {display: none;}
 .small-muted { color: #6B7280; font-size: 0.92rem; }
 [data-testid="stSidebarNav"] {display: none !important;}
 section[data-testid="stSidebarNav"] {display: none !important;}
+[data-testid="stSidebar"] .stRadio label {font-size: 17px !important; padding: 10px 4px !important; font-weight: 500;}
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] {gap: 6px !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -65,6 +72,20 @@ for key, val in [
 ]:
     if key not in st.session_state:
         st.session_state[key] = val
+
+# ── Auth: restaura sessão via query_params (persiste F5) ──
+if not is_logado():
+    _sessao = carregar_sessao()
+    if _sessao:
+        st.session_state["auth_usuario"] = _sessao
+        st.session_state["auth_tipo"]    = _sessao["tipo"]
+        st.session_state["auth_nome"]    = _sessao["nome"]
+        st.session_state["auth_email"]   = _sessao["email"]
+        st.session_state["auth_frente"]  = _sessao["frente"]
+
+if not is_logado():
+    render_login()
+    st.stop()
 
 
 # =========================================================
@@ -306,22 +327,18 @@ modo_manutencao = status_sistema.get("modo_manutencao", False)
 # =========================================================
 with st.sidebar:
     st.image(URL_LOGO_CARRERA, width=180)
-    if not modo_manutencao:
-        st.markdown("### 👤 Dados da Proposta")
-        vendedor           = st.text_input("Consultor *")
-        cliente            = st.text_input("Cliente *")
-        qtd                = st.selectbox("Qtd ofertas", [1, 2, 3], index=2)
-        progress_container = st.empty()
-    else:
-        vendedor = cliente = ""
-        qtd = 3
-        progress_container = st.empty()
+    render_sidebar_user()
+
+vendedor           = ""
+cliente            = ""
+qtd                = 3
+progress_container = st.empty()
 
 
 # =========================================================
 # TELA DE MANUTENÇÃO
 # =========================================================
-if modo_manutencao:
+if modo_manutencao and not is_staff():
     st.markdown("""
     <div class="manutencao-wrapper"><div class="manutencao-card">
         <div class="manutencao-titulo">🚧 Sistema em manutenção</div>
@@ -357,25 +374,37 @@ if modo_manutencao:
 # =========================================================
 # ABAS
 # =========================================================
-tab1, tab2, tab3, tab4, tab5, tab7 = st.tabs([
-    "🚗 Propostas", "📊 Relatório", "🛠️ Gerenciamento",
-    "🧮 Simulador", "🔍 Comparativo", "🚘 Gestão de Veículos"
-])
+# ── Navegação pelo sidebar ─────────────────────────────
+_TODAS_ABAS = [
+    "🚗 Propostas", "🎴 Card", "🔍 Comparativo",
+    "📈 Performance", "🚘 Estoque", "👥 Usuários",
+    "🛠️ Gerenciamento"
+]
+_abas_render = [a for a in _TODAS_ABAS if a in abas_permitidas()]
 
-with tab1:
-    render_propostas(vendedor, cliente, qtd, progress_container)
+with st.sidebar:
+    st.markdown("<hr style='margin:8px 0;border-color:#e2e8f0'>", unsafe_allow_html=True)
+    _aba_ativa = st.radio("Navegação", _abas_render, label_visibility="collapsed")
+    render_sidebar_sair()
 
-with tab2:
-    render_relatorio()
+# ── Renderiza a aba selecionada ─────────────────────────
+if _aba_ativa == "🚗 Propostas":
+    render_propostas()
 
-with tab3:
-    render_gerenciamento(status_sistema, modo_manutencao, SENHA_DESATIVAR)
-
-with tab4:
+elif _aba_ativa == "🎴 Card":
     render_simulador(gerar_card_plano_html, gerar_card_png)
 
-with tab5:
+elif _aba_ativa == "🔍 Comparativo":
     render_comparativo()
 
-with tab7:
+elif _aba_ativa == "📈 Performance":
+    render_relatorio()
+
+elif _aba_ativa == "🚘 Estoque":
     render_gestao_veiculos()
+
+elif _aba_ativa == "👥 Usuários":
+    render_usuarios()
+
+elif _aba_ativa == "🛠️ Gerenciamento":
+    render_gerenciamento(status_sistema, modo_manutencao, SENHA_DESATIVAR)
