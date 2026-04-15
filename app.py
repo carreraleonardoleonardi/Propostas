@@ -24,6 +24,7 @@ from pages.simulador        import render as render_simulador
 from pages.comparativo      import render as render_comparativo
 from pages.estoque          import render as render_estoque
 from pages.gestao_veiculos  import render as render_gestao_veiculos
+from pages.controle_usados  import render as render_controle_usados
 
 
 # =========================================================
@@ -377,8 +378,8 @@ if modo_manutencao and not is_staff():
 # ── Navegação pelo sidebar ─────────────────────────────
 _TODAS_ABAS = [
     "🚗 Propostas", "🎴 Card", "🔍 Comparativo",
-    "📈 Performance", "🚘 Estoque", "👥 Usuários",
-    "🛠️ Gerenciamento"
+    "📈 Performance", "🚘 Estoque", "🚙 Controle Usados",
+    "📅 Agenda de Entregas", "👥 Usuários", "🛠️ Gerenciamento"
 ]
 _abas_render = [a for a in _TODAS_ABAS if a in abas_permitidas()]
 
@@ -401,6 +402,13 @@ elif _aba_ativa == "📈 Performance":
     render_relatorio()
 
 elif _aba_ativa == "🚘 Estoque":
+    render_gestao_veiculos()
+
+elif _aba_ativa == "🚙 Controle Usados":
+    render_controle_usados()
+
+elif _aba_ativa == "📅 Agenda de Entregas":
+    # Entregador vê só a agenda do dia da gestão de veículos
     render_gestao_veiculos()
 
 elif _aba_ativa == "👥 Usuários":

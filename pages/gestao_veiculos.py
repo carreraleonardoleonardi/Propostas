@@ -308,55 +308,52 @@ def render():
     idx = {a: i for i, a in enumerate(abas)}
 
     # ════════════════════════════════════════════════════════
+    # ════════════════════════════════════════════════════════
     # PAINEL
     # ════════════════════════════════════════════════════════
     with tabs[idx["📋 Painel"]]:
-        col_ref, _ = st.columns([1, 8])
-        with col_ref:
-            if st.button("🔄 Atualizar", key="gv_refresh"):
+
+        for _k, _v in [("gv_modal_chassi", None), ("gv_modal_acao", None), ("ag_forcar", False)]:
+            if _k not in st.session_state:
+                st.session_state[_k] = _v
+
+        hoje = datetime.date.today()
+
+        r1, r2 = st.columns([1, 8])
+        with r1:
+            if st.button("🔄", key="gv_refresh", use_container_width=True):
                 gv_carregar.clear(); st.rerun()
 
         if df_gv.empty:
             st.info("Nenhum veículo cadastrado ainda.")
         else:
-            # KPIs visuais
-            total       = len(df_gv)
-            disp        = len(df_gv[df_gv["status"].str.contains("Disponível", na=False)]) if "status" in df_gv.columns else 0
-            agend       = len(df_gv[df_gv["status"] == "Agendado"]) if "status" in df_gv.columns else 0
-            entregues   = len(df_gv[df_gv["status"] == "Entregue"]) if "status" in df_gv.columns else 0
-            avariados   = len(df_gv[df_gv["status"] == "Avariado"]) if "status" in df_gv.columns else 0
-            atrasados   = 0
-            hoje = datetime.date.today()
-            if "status" in df_gv.columns:
-                df_ag_check = df_gv[df_gv["status"] == "Agendado"].copy()
-                df_ag_check["_farol"] = df_ag_check.apply(farol_agendamento, axis=1)
-                atrasados = len(df_ag_check[df_ag_check["_farol"] == "🔴"])
+            # KPIs
+            total     = len(df_gv)
+            disp      = len(df_gv[df_gv["status"].str.contains("Disponível", na=False)]) if "status" in df_gv.columns else 0
+            agend     = len(df_gv[df_gv["status"] == "Agendado"])  if "status" in df_gv.columns else 0
+            entregues = len(df_gv[df_gv["status"] == "Entregue"])  if "status" in df_gv.columns else 0
+            avariados = len(df_gv[df_gv["status"] == "Avariado"])  if "status" in df_gv.columns else 0
+            ag_check  = df_gv[df_gv["status"] == "Agendado"].copy() if "status" in df_gv.columns else pd.DataFrame()
+            if not ag_check.empty:
+                ag_check["_f"] = ag_check.apply(farol_agendamento, axis=1)
+                atrasados = len(ag_check[ag_check["_f"] == "🔴"])
+            else:
+                atrasados = 0
 
-            st.markdown(f"""
-            <div class="gv-kpi-grid">
-                <div class="gv-kpi"><div class="gv-kpi-num">{total}</div><div class="gv-kpi-lbl">Total</div></div>
-                <div class="gv-kpi"><div class="gv-kpi-num" style="color:#22c55e">{disp}</div><div class="gv-kpi-lbl">Disponíveis</div></div>
-                <div class="gv-kpi"><div class="gv-kpi-num" style="color:#06b6d4">{agend}</div><div class="gv-kpi-lbl">Agendados</div></div>
-                <div class="gv-kpi"><div class="gv-kpi-num" style="color:#10b981">{entregues}</div><div class="gv-kpi-lbl">Entregues</div></div>
-                <div class="gv-kpi"><div class="gv-kpi-num" style="color:#ef4444">{avariados}</div><div class="gv-kpi-lbl">Avariados</div></div>
-                <div class="gv-kpi"><div class="gv-kpi-num" style="color:#dc2626">{atrasados}</div><div class="gv-kpi-lbl">Atrasados</div></div>
-            </div>
-            <p style="font-size:11px;color:#94a3b8;margin-bottom:16px;">
-                Farol de idade: 🟢 ≤20 dias · 🟡 ≤30 dias · 🔴 ≤45 dias · ⚫ >45 dias
-            </p>
-            """, unsafe_allow_html=True)
+            k1,k2,k3,k4,k5,k6 = st.columns(6)
+            k1.metric("Total",       total)
+            k2.metric("Disponíveis", disp)
+            k3.metric("Agendados",   agend)
+            k4.metric("Entregues",   entregues)
+            k5.metric("Avariados",   avariados)
+            k6.metric("Atrasados",   atrasados)
 
-            # Filtros compactos
-            with st.expander("🔍 Filtros", expanded=False):
-                f1, f2, f3, f4 = st.columns(4)
-                with f1:
-                    flt_sta = st.selectbox("Status",     ["Todos"] + GV_STATUS_LIST, key="p_sta")
-                with f2:
-                    flt_fab = st.selectbox("Fabricante", ["Todos"] + sorted(df_gv["fabricante"].dropna().unique().tolist()) if "fabricante" in df_gv.columns else ["Todos"], key="p_fab")
-                with f3:
-                    flt_loc = st.selectbox("Locadora",   ["Todos"] + sorted(df_gv["locadora"].dropna().unique().tolist()) if "locadora" in df_gv.columns else ["Todos"], key="p_loc")
-                with f4:
-                    flt_con = st.selectbox("Consultor",  ["Todos"] + sorted(df_gv["consultor"].dropna().unique().tolist()) if "consultor" in df_gv.columns else ["Todos"], key="p_con")
+            # Filtros sempre visíveis
+            f1, f2, f3, f4 = st.columns(4)
+            with f1: flt_sta = st.selectbox("Status",     ["Todos"] + GV_STATUS_LIST, key="p_sta")
+            with f2: flt_fab = st.selectbox("Fabricante", ["Todos"] + sorted(df_gv["fabricante"].dropna().unique().tolist()) if "fabricante" in df_gv.columns else ["Todos"], key="p_fab")
+            with f3: flt_loc = st.selectbox("Locadora",   ["Todos"] + sorted(df_gv["locadora"].dropna().unique().tolist())   if "locadora"   in df_gv.columns else ["Todos"], key="p_loc")
+            with f4: flt_con = st.selectbox("Consultor",  ["Todos"] + sorted(df_gv["consultor"].dropna().unique().tolist())  if "consultor"  in df_gv.columns else ["Todos"], key="p_con")
 
             df_view = df_gv.copy()
             if flt_sta != "Todos": df_view = df_view[df_view["status"]     == flt_sta]
@@ -364,200 +361,314 @@ def render():
             if flt_loc != "Todos": df_view = df_view[df_view["locadora"]   == flt_loc]
             if flt_con != "Todos": df_view = df_view[df_view["consultor"]  == flt_con]
 
-            st.markdown(f"**{len(df_view)} veículo(s)** &nbsp; <span style='font-size:12px;color:#94a3b8'>— clique em um card para ver todos os detalhes</span>", unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
+            # Busca individual
+            b1, b2, b3 = st.columns(3)
+            with b1: busca_chassi = st.text_input("🔑 Chassi", placeholder="Ex: 9BWBG6DF5TT...", key="gv_b_chassi")
+            with b2: busca_placa  = st.text_input("🪪 Placa",  placeholder="Ex: QSO8D24",        key="gv_b_placa")
+            with b3: busca_pedido = st.text_input("📄 Nº Pedido", placeholder="Ex: 12345",        key="gv_b_pedido")
 
-            # Gera todos os cards com expansão via JS puro
-            cards_html = """
-<style>
-.vcard {
-    background:#fff;
-    border:1px solid #e2e8f0;
-    border-radius:14px;
-    margin-bottom:10px;
-    overflow:hidden;
-    box-shadow:0 1px 4px rgba(0,0,0,0.05);
-    transition:box-shadow .2s, transform .15s;
-    cursor:pointer;
-}
-.vcard:hover { box-shadow:0 4px 18px rgba(0,0,0,0.10); transform:translateY(-1px); }
-.vcard-header {
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    padding:14px 20px;
-    gap:12px;
-    flex-wrap:wrap;
-}
-.vcard-left { display:flex; align-items:center; gap:14px; flex:1; min-width:0; }
-.vcard-borda { width:5px; min-height:48px; border-radius:4px; flex-shrink:0; }
-.vcard-modelo { font-size:15px; font-weight:700; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.vcard-sub { font-size:12px; color:#64748b; margin-top:2px; display:flex; gap:6px; flex-wrap:wrap; }
-.vtag { background:#f1f5f9; border-radius:5px; padding:2px 7px; font-size:11px; color:#475569; }
-.vcard-right { display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0; }
-.vbadge { padding:3px 12px; border-radius:999px; font-size:11px; font-weight:700; color:#fff; white-space:nowrap; }
-.vcard-idade { font-size:11px; color:#94a3b8; }
-.vcard-chevron { font-size:14px; color:#94a3b8; margin-left:8px; transition:transform .25s; }
-.vcard-detail {
-    display:none;
-    border-top:1px solid #f1f5f9;
-    background:#fafbfc;
-    padding:20px 24px;
-    animation: fadeIn .2s ease;
-}
-@keyframes fadeIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
-.vcard.open .vcard-detail { display:block; }
-.vcard.open .vcard-chevron { transform:rotate(180deg); }
-.vcard.open { box-shadow:0 6px 24px rgba(0,0,0,0.12); }
-.vdetail-grid {
-    display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));
-    gap:16px 24px;
-    margin-bottom:16px;
-}
-.vdetail-section { margin-bottom:16px; }
-.vdetail-section-title { font-size:10px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.8px; margin-bottom:10px; padding-bottom:4px; border-bottom:1px solid #e2e8f0; }
-.vfield { display:flex; flex-direction:column; gap:2px; }
-.vfield-lbl { font-size:10px; color:#94a3b8; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
-.vfield-val { font-size:13px; color:#1e293b; font-weight:500; }
-.vfield-val.empty { color:#cbd5e1; font-style:italic; }
-.vclose-btn {
-    display:inline-flex; align-items:center; gap:6px;
-    background:#f1f5f9; border:none; border-radius:8px;
-    padding:6px 14px; font-size:12px; color:#475569;
-    cursor:pointer; font-weight:600; margin-top:4px;
-    transition:background .15s;
-}
-.vclose-btn:hover { background:#e2e8f0; }
-</style>
-<script>
-function toggleCard(id) {
-    var card = document.getElementById(id);
-    card.classList.toggle('open');
-}
-function closeCard(id, e) {
-    e.stopPropagation();
-    document.getElementById(id).classList.remove('open');
-}
-</script>
-"""
+            if busca_chassi and "chassi" in df_view.columns:
+                df_view = df_view[df_view["chassi"].astype(str).str.lower().str.contains(busca_chassi.strip().lower(), na=False)]
+            if busca_placa and "placa" in df_view.columns:
+                df_view = df_view[df_view["placa"].astype(str).str.lower().str.contains(busca_placa.strip().lower(), na=False)]
+            if busca_pedido and "pedido" in df_view.columns:
+                df_view = df_view[df_view["pedido"].astype(str).str.lower().str.contains(busca_pedido.strip().lower(), na=False)]
 
-            def safe(v):
-                s = str(v).strip()
-                return s if s and s not in ("nan","None","NaT","") else "—"
+            st.divider()
 
-            def vfield(label, val):
-                v = safe(val)
-                cls = "empty" if v == "—" else ""
-                return f'<div class="vfield"><div class="vfield-lbl">{label}</div><div class="vfield-val {cls}">{v}</div></div>'
+            # ── MODAL DE AÇÕES ──────────────────────────
+            chassi_modal = st.session_state.get("gv_modal_chassi")
+
+            if chassi_modal:
+                match_m = df_gv[df_gv["chassi"].astype(str) == chassi_modal]
+                if not match_m.empty:
+                    vm       = match_m.iloc[0]
+                    idx_vm   = match_m.index[0]
+                    linha_vm = int(idx_vm) + 2
+                    acao_modal = st.session_state.get("gv_modal_acao")
+
+                    def val(col, d=""):
+                        v = vm.get(col, d)
+                        if pd.isna(v): return ""
+                        s = str(v).strip()
+                        # Remove .0 de inteiros (ex: 2026.0 → 2026)
+                        if s.endswith(".0") and s[:-2].lstrip("-").isdigit():
+                            return s[:-2]
+                        return s
+
+                    cor_m = STATUS_CORES.get(val("status"), "#94a3b8")
+                    idade_m = vm.get("_idade", None)
+                    fi_m = farol_idade(idade_m)
+
+                    # Cabeçalho do painel de ações
+                    with st.container(border=True):
+                        c_left, c_right = st.columns([3, 1])
+                        with c_left:
+                            st.markdown(f"### {val('modelo')} · {val('fabricante')}")
+                            st.caption(f"🔑 {val('chassi')}  ·  🪪 {val('placa')}  ·  🎨 {val('cor')}  ·  🏢 {val('locadora')}")
+                            if val("cliente"):
+                                st.caption(f"👤 {val('cliente')}  ·  Consultor: {val('consultor')}")
+                        with c_right:
+                            cor_hex = STATUS_CORES.get(val("status"), "#94a3b8")
+                            st.markdown(
+                                f"<div style='text-align:right'>"
+                                f"<span style='background:{cor_hex};color:#fff;padding:4px 14px;"
+                                f"border-radius:999px;font-size:12px;font-weight:700'>{val('status')}</span>"
+                                f"<div style='font-size:11px;color:#94a3b8;margin-top:6px'>{fi_m} {f'{idade_m}d' if idade_m is not None else '—'}</div>"
+                                f"</div>",
+                                unsafe_allow_html=True
+                            )
+
+                        # Botões de ação
+                        ba1, ba2, ba3, ba4, ba5 = st.columns(5)
+                        with ba1:
+                            if st.button("🔄 Status",   key="m_status",   use_container_width=True, type="primary" if acao_modal=="status"   else "secondary"): st.session_state["gv_modal_acao"]="status";   st.rerun()
+                        with ba2:
+                            if st.button("📅 Agendar",  key="m_agendar",  use_container_width=True, type="primary" if acao_modal=="agendar"  else "secondary"): st.session_state["gv_modal_acao"]="agendar";  st.rerun()
+                        with ba3:
+                            if st.button("✏️ Editar",   key="m_editar",   use_container_width=True, type="primary" if acao_modal=="editar"   else "secondary"): st.session_state["gv_modal_acao"]="editar";   st.rerun()
+                        with ba4:
+                            if st.button("📋 Detalhes", key="m_detalhes", use_container_width=True, type="primary" if acao_modal=="detalhes" else "secondary"): st.session_state["gv_modal_acao"]="detalhes"; st.rerun()
+                        with ba5:
+                            if st.button("✖ Fechar",    key="m_fechar",   use_container_width=True):
+                                st.session_state["gv_modal_chassi"] = None
+                                st.session_state["gv_modal_acao"]   = None
+                                st.rerun()
+
+                        # ── Status ──────────────────────
+                        if acao_modal == "status":
+                            st.divider()
+                            with st.form("form_modal_status"):
+                                idx_s = GV_STATUS_LIST.index(val("status")) if val("status") in GV_STATUS_LIST else 0
+                                novo_status = st.selectbox("Novo status", GV_STATUS_LIST, index=idx_s)
+                                if st.form_submit_button("✅ Salvar status", use_container_width=True, type="primary"):
+                                    agora_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                                    _prog = st.progress(0, text="Salvando status...")
+                                    _prog.progress(40, text="Atualizando planilha...")
+                                    gv_enviar({"aba":"veiculos","acao":"atualizar_linha","linha_num":linha_vm,
+                                        "valores":[
+                                            {"col":GV_COLUNAS.index("status")+1,         "valor":novo_status},
+                                            {"col":GV_COLUNAS.index("atualizado_em")+1,  "valor":agora_str},
+                                            {"col":GV_COLUNAS.index("atualizado_por")+1, "valor":st.session_state.get("auth_nome","Sistema")},
+                                        ]})
+                                    _prog.progress(80, text="Registrando histórico...")
+                                    gv_enviar({"aba":"historico","acao":"inserir","linha":[
+                                        val("id"),val("chassi"),val("modelo"),val("status"),novo_status,agora_str,
+                                        st.session_state.get("auth_nome","Sistema")]})
+                                    _prog.progress(100, text="Concluído!")
+                                    gv_carregar.clear()
+                                    st.success(f"✅ Status → {novo_status}")
+                                    st.session_state["gv_modal_acao"] = None
+                                    st.rerun()
+
+                        # ── Agendar ─────────────────────
+                        elif acao_modal == "agendar":
+                            st.divider()
+                            with st.form("form_modal_agendar"):
+                                ag1, ag2, ag3 = st.columns(3)
+                                with ag1: nova_data = st.date_input("Data *", value=hoje)
+                                with ag2: nova_hora = st.time_input("Hora *", value=datetime.time(10,0))
+                                with ag3: nova_loja = st.selectbox("Loja *", GV_LOJAS)
+                                ag4, ag5 = st.columns(2)
+                                with ag4: novo_ent = st.text_input("Entregador", value=val("entregador"))
+                                with ag5: novo_con = st.text_input("Consultor",  value=val("consultor"))
+                                confirmar = st.form_submit_button("📅 Confirmar agendamento", use_container_width=True, type="primary")
+
+                            if confirmar:
+                                erros_ag = []
+                                err_r = verificar_rodizio(val("placa"), nova_data, nova_hora)
+                                if err_r: erros_ag.append(err_r)
+                                err_c = verificar_conflito_loja(df_gv, nova_data, nova_hora, nova_loja, excluir_idx=idx_vm)
+                                if err_c: erros_ag.append(err_c)
+                                if erros_ag:
+                                    for e in erros_ag: st.error(e)
+                                    senha_f = st.text_input("Senha para forçar", type="password", key="ag_senha_m")
+                                    if st.button("🔓 Forçar mesmo assim", key="btn_forcar_m"):
+                                        if senha_f == SENHA_FECHAMENTO:
+                                            st.session_state["ag_forcar"] = True; st.rerun()
+                                        else: st.error("Senha incorreta.")
+                                else:
+                                    st.session_state["ag_forcar"] = True
+
+                            if st.session_state.get("ag_forcar"):
+                                st.session_state["ag_forcar"] = False
+                                agora_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                                _prog2 = st.progress(0, text="Agendando veículo...")
+                                _prog2.progress(40, text="Atualizando planilha...")
+                                gv_enviar({"aba":"veiculos","acao":"atualizar_linha","linha_num":linha_vm,
+                                    "valores":[
+                                        {"col":GV_COLUNAS.index("status")+1,         "valor":"Agendado"},
+                                        {"col":GV_COLUNAS.index("data_entrega")+1,   "valor":nova_data.strftime("%d/%m/%Y")},
+                                        {"col":GV_COLUNAS.index("hora_entrega")+1,   "valor":nova_hora.strftime("%H:%M")},
+                                        {"col":GV_COLUNAS.index("loja_entrega")+1,   "valor":nova_loja},
+                                        {"col":GV_COLUNAS.index("entregador")+1,     "valor":novo_ent},
+                                        {"col":GV_COLUNAS.index("consultor")+1,      "valor":novo_con},
+                                        {"col":GV_COLUNAS.index("atualizado_em")+1,  "valor":agora_str},
+                                        {"col":GV_COLUNAS.index("atualizado_por")+1, "valor":st.session_state.get("auth_nome","Sistema")},
+                                    ]})
+                                _prog2.progress(80, text="Registrando histórico...")
+                                gv_enviar({"aba":"historico","acao":"inserir","linha":[
+                                    val("id"),val("chassi"),val("modelo"),val("status"),"Agendado",agora_str,
+                                    st.session_state.get("auth_nome","Sistema")]})
+                                _prog2.progress(100, text="Concluído!")
+                                gv_carregar.clear()
+                                st.success("✅ Agendado!")
+                                st.session_state["gv_modal_acao"] = None
+                                st.rerun()
+
+                        # ── Editar básico ────────────────
+                        elif acao_modal == "editar":
+                            st.divider()
+                            with st.form("form_modal_editar"):
+                                e1, e2 = st.columns(2)
+                                with e1:
+                                    e_placa     = st.text_input("Placa",       value=val("placa"))
+                                    e_cor       = st.text_input("Cor",         value=val("cor"))
+                                    e_cliente   = st.text_input("Cliente",     value=val("cliente"))
+                                    e_consultor = st.text_input("Consultor",   value=val("consultor"))
+                                with e2:
+                                    e_local  = st.text_input("Local Atual",    value=val("local_atual"))
+                                    e_pedido = st.text_input("Nº Pedido",      value=val("pedido"))
+                                    e_loja   = st.selectbox("Loja Entrega", [""]+GV_LOJAS,
+                                        index=([""]+GV_LOJAS).index(val("loja_entrega")) if val("loja_entrega") in GV_LOJAS else 0)
+                                    e_avaria = st.selectbox("Avaria?", ["Não","Sim"],
+                                        index=1 if val("avaria")=="Sim" else 0)
+                                e_obs = st.text_area("Obs. Avaria", value=val("obs_avaria"), height=60)
+                                if st.form_submit_button("💾 Salvar", use_container_width=True, type="primary"):
+                                    agora_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                                    _prog3 = st.progress(0, text="Salvando dados...")
+                                    _prog3.progress(50, text="Atualizando planilha...")
+                                    campos = [
+                                        ("placa",e_placa),("cor",e_cor),("cliente",e_cliente),
+                                        ("consultor",e_consultor),("local_atual",e_local),
+                                        ("pedido",e_pedido),("loja_entrega",e_loja),
+                                        ("avaria",e_avaria),("obs_avaria",e_obs if e_avaria=="Sim" else ""),
+                                        ("atualizado_em",agora_str),
+                                        ("atualizado_por",st.session_state.get("auth_nome","Sistema")),
+                                    ]
+                                    valores = [{"col":GV_COLUNAS.index(c)+1,"valor":v} for c,v in campos if c in GV_COLUNAS]
+                                    ok = gv_enviar({"aba":"veiculos","acao":"atualizar_linha","linha_num":linha_vm,"valores":valores})
+                                    _prog3.progress(100, text="Concluído!")
+                                    if ok:
+                                        gv_carregar.clear()
+                                        st.success("✅ Dados atualizados!")
+                                        st.session_state["gv_modal_acao"] = None
+                                        st.rerun()
+
+                        # ── Detalhes ─────────────────────
+                        elif acao_modal == "detalhes":
+                            st.divider()
+                            def det(label, col):
+                                v = val(col)
+                                return label, v if v else "—"
+
+                            secoes = [
+                                ("🔍 Identificação", [
+                                    det("Fabricante","fabricante"), det("Modelo","modelo"),
+                                    det("Chassi","chassi"), det("Placa","placa"),
+                                    det("Cor","cor"), det("Combustível","combustivel"),
+                                    det("Ano Fab.","ano_fabricacao"), det("Ano Mod.","ano_modelo"),
+                                    det("Opcionais","opcionais"),
+                                ]),
+                                ("🏢 Operacional", [
+                                    det("Status","status"), det("Locadora","locadora"),
+                                    det("Consultor","consultor"), det("Cliente","cliente"),
+                                    det("Pedido","pedido"), det("Local Atual","local_atual"),
+                                    det("Avaria","avaria"), det("Obs. Avaria","obs_avaria"),
+                                ]),
+                                ("📅 Datas e Entrega", [
+                                    det("Data Chegada","data_chegada"), det("Data Entrega","data_entrega"),
+                                    det("Hora Entrega","hora_entrega"), det("Loja Entrega","loja_entrega"),
+                                    det("Entregador","entregador"),
+                                    ("Idade Estoque", f"{vm.get('_idade','—')}d" if vm.get("_idade") is not None else "—"),
+                                ]),
+                                ("💰 Financeiro", [
+                                    det("Valor NF","valor_nf"), det("Margem","margem"), det("Comissão","comissao"),
+                                ]),
+                                ("🕐 Auditoria", [
+                                    det("ID","id"), det("Criado em","criado_em"),
+                                    det("Atualizado em","atualizado_em"), det("Atualizado por","atualizado_por"),
+                                ]),
+                            ]
+
+                            for titulo, campos in secoes:
+                                st.markdown(f"**{titulo}**")
+                                cols_det = st.columns(4)
+                                for j, (lbl, v) in enumerate(campos):
+                                    with cols_det[j % 4]:
+                                        st.markdown(f"<div style='font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase'>{lbl}</div>"
+                                                    f"<div style='font-size:13px;color:#1e293b;font-weight:500;margin-bottom:8px'>{v}</div>",
+                                                    unsafe_allow_html=True)
+
+                st.divider()
+
+            # ── Cards ────────────────────────────────────
+            st.markdown(f"**{len(df_view)} veículo(s)**")
 
             for i, (_, row) in enumerate(df_view.iterrows()):
-                idade = row.get("_idade", None)
-                fi    = farol_idade(idade)
-                id_txt = f"{fi} {idade}d" if idade is not None else "⚪ —"
-                status = str(row.get("status",""))
-                cor    = STATUS_CORES.get(status, "#94a3b8")
-                card_id = f"vcard_{i}"
+                def sv(col):
+                    v = row.get(col, "")
+                    s = str(v).strip()
+                    return s if s and s not in ("nan","None","NaT","") else "—"
 
-                cards_html += f"""
-<div class="vcard" id="{card_id}" onclick="toggleCard('{card_id}')">
-  <div class="vcard-header">
-    <div class="vcard-left">
-      <div class="vcard-borda" style="background:{cor}"></div>
-      <div>
-        <div class="vcard-modelo">{safe(row.get('modelo'))} &nbsp;<span style="font-weight:400;color:#94a3b8;font-size:13px">{safe(row.get('fabricante'))}</span></div>
-        <div class="vcard-sub">
-          <span class="vtag">🔑 {safe(row.get('chassi'))}</span>
-          <span class="vtag">🪪 {safe(row.get('placa'))}</span>
-          <span class="vtag">🎨 {safe(row.get('cor'))}</span>
-          <span class="vtag">🏢 {safe(row.get('locadora'))}</span>
-        </div>
-      </div>
-    </div>
-    <div class="vcard-right">
-      <div style="display:flex;align-items:center;gap:6px">
-        <span class="vbadge" style="background:{cor}">{status}</span>
-        <span class="vcard-chevron">▼</span>
-      </div>
-      <div class="vcard-idade">{id_txt} · {safe(row.get('local_atual'))}</div>
-      {'<div style="font-size:12px;color:#475569;margin-top:2px">👤 ' + safe(row.get('cliente')) + ' · ' + safe(row.get('consultor')) + '</div>' if safe(row.get('cliente')) != '—' else ''}
-    </div>
-  </div>
+                chassi_r = sv("chassi")
+                status_r = str(row.get("status",""))
+                cor_r    = STATUS_CORES.get(status_r, "#94a3b8")
+                idade    = row.get("_idade", None)
+                fi       = farol_idade(idade)
+                id_txt   = f"{fi} {idade}d" if idade is not None else "⚪ —"
+                ativo    = st.session_state.get("gv_modal_chassi") == chassi_r
 
-  <div class="vcard-detail">
-
-    <div class="vdetail-section">
-      <div class="vdetail-section-title">🔍 Identificação</div>
-      <div class="vdetail-grid">
-        {vfield('Fabricante', row.get('fabricante'))}
-        {vfield('Modelo', row.get('modelo'))}
-        {vfield('Chassi', row.get('chassi'))}
-        {vfield('Placa', row.get('placa'))}
-        {vfield('Cor', row.get('cor'))}
-        {vfield('Combustível', row.get('combustivel'))}
-        {vfield('Ano Fabricação', row.get('ano_fabricacao'))}
-        {vfield('Ano Modelo', row.get('ano_modelo'))}
-        {vfield('Opcionais', row.get('opcionais'))}
-      </div>
-    </div>
-
-    <div class="vdetail-section">
-      <div class="vdetail-section-title">🏢 Operacional</div>
-      <div class="vdetail-grid">
-        {vfield('Status', row.get('status'))}
-        {vfield('Locadora', row.get('locadora'))}
-        {vfield('Consultor', row.get('consultor'))}
-        {vfield('Cliente', row.get('cliente'))}
-        {vfield('Nº Pedido', row.get('pedido'))}
-        {vfield('Local Atual', row.get('local_atual'))}
-        {vfield('Com Avaria?', row.get('avaria'))}
-        {vfield('Obs. Avaria', row.get('obs_avaria'))}
-      </div>
-    </div>
-
-    <div class="vdetail-section">
-      <div class="vdetail-section-title">📅 Datas e Entrega</div>
-      <div class="vdetail-grid">
-        {vfield('Data Chegada', row.get('data_chegada'))}
-        {vfield('Data Entrega', row.get('data_entrega'))}
-        {vfield('Hora Entrega', row.get('hora_entrega'))}
-        {vfield('Loja de Entrega', row.get('loja_entrega'))}
-        {vfield('Entregador', row.get('entregador'))}
-        {vfield('Idade no Estoque', f"{idade} dias" if idade is not None else "—")}
-      </div>
-    </div>
-
-    <div class="vdetail-section">
-      <div class="vdetail-section-title">💰 Financeiro</div>
-      <div class="vdetail-grid">
-        {vfield('Valor NF', row.get('valor_nf'))}
-        {vfield('Margem', row.get('margem'))}
-        {vfield('Comissão', row.get('comissao'))}
-      </div>
-    </div>
-
-    <div class="vdetail-section">
-      <div class="vdetail-section-title">🕐 Auditoria</div>
-      <div class="vdetail-grid">
-        {vfield('ID', row.get('id'))}
-        {vfield('Criado em', row.get('criado_em'))}
-        {vfield('Atualizado em', row.get('atualizado_em'))}
-        {vfield('Atualizado por', row.get('atualizado_por'))}
-      </div>
-    </div>
-
-    <button class="vclose-btn" onclick="closeCard('{card_id}', event)">▲ Fechar</button>
-  </div>
-</div>"""
-
-            st.markdown(cards_html, unsafe_allow_html=True)
+                with st.container(border=ativo):
+                    c_card, c_btn1, c_btn2 = st.columns([10, 1, 1])
+                    with c_card:
+                        cliente_txt = f"👤 **{sv('cliente')}** · {sv('consultor')}" if sv("cliente") != "—" else ""
+                        st.markdown(
+                            f"<div style='border-left:5px solid {cor_r};padding-left:12px'>"
+                            f"<div style='font-size:15px;font-weight:700;color:#1e293b'>{sv('modelo')}"
+                            f" <span style='font-weight:400;color:#94a3b8;font-size:13px'>{sv('fabricante')}</span></div>"
+                            f"<div style='font-size:12px;color:#64748b;margin-top:3px'>"
+                            f"🔑 {sv('chassi')} &nbsp;·&nbsp; 🪪 {sv('placa')} &nbsp;·&nbsp; 🎨 {sv('cor')} &nbsp;·&nbsp; 🏢 {sv('locadora')}"
+                            f"</div>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+                        col_status, col_info = st.columns([2, 5])
+                        with col_status:
+                            st.markdown(
+                                f"<span style='background:{cor_r};color:#fff;padding:2px 10px;"
+                                f"border-radius:999px;font-size:11px;font-weight:700'>{status_r}</span>"
+                                f"&nbsp; <span style='font-size:11px;color:#94a3b8'>{id_txt}</span>",
+                                unsafe_allow_html=True
+                            )
+                        if cliente_txt:
+                            with col_info:
+                                st.caption(f"👤 {sv('cliente')} · {sv('consultor')}")
+                    with c_btn1:
+                        lbl = "✖" if ativo else "⚡"
+                        if st.button(lbl, key=f"mb_{i}_{chassi_r}", use_container_width=True,
+                                     type="primary" if ativo else "secondary"):
+                            if ativo:
+                                st.session_state["gv_modal_chassi"] = None
+                                st.session_state["gv_modal_acao"]   = None
+                            else:
+                                st.session_state["gv_modal_chassi"] = chassi_r
+                                st.session_state["gv_modal_acao"]   = None
+                            st.rerun()
+                    with c_btn2:
+                        det_ativo = ativo and st.session_state.get("gv_modal_acao") == "detalhes"
+                        if st.button("📋", key=f"det_{i}_{chassi_r}", use_container_width=True,
+                                     type="primary" if det_ativo else "secondary"):
+                            st.session_state["gv_modal_chassi"] = chassi_r
+                            st.session_state["gv_modal_acao"]   = "detalhes"
+                            st.rerun()
 
             if autenticado:
                 st.markdown("<br>", unsafe_allow_html=True)
                 csv_exp = df_view.to_csv(index=False).encode("utf-8")
-                st.download_button("📥 Exportar CSV", data=csv_exp, file_name="veiculos.csv", mime="text/csv")
+                st.download_button("📥 Exportar CSV", data=csv_exp,
+                    file_name="veiculos.csv", mime="text/csv", key="gv_csv_dl")
 
-    # ════════════════════════════════════════════════════════
     # CADASTRAR
     # ════════════════════════════════════════════════════════
     if autenticado:
@@ -1265,7 +1376,7 @@ function closeCard(id, e) {
 
             if autenticado and "valor_nf" in df_gv.columns:
                 st.divider()
-                st.markdown("**💰 Financeiro**")
+                st.markdown("**💰 Finaneiro**")
                 df_fin = df_gv.copy()
                 df_fin["valor_nf"] = pd.to_numeric(df_fin["valor_nf"], errors="coerce")
                 df_fin = df_fin[df_fin["valor_nf"]>0]

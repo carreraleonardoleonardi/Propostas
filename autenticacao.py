@@ -27,15 +27,17 @@ COL_FRENTE      = 5
 COL_TIPO_ACESSO = 6
 COL_SENHA_HASH  = 7
 
-TIPOS_ACESSO = ["Staff", "Vendas", "Parceiro"]
+TIPOS_ACESSO = ["Staff", "Vendas", "Parceiro", "Entregador"]
 
 # Permissões por tipo de acesso
 ABAS_POR_TIPO = {
-    "Staff":   ["🚗 Propostas", "🎴 Card", "🔍 Comparativo",
-                "📈 Performance", "🚘 Estoque", "👥 Usuários", "🛠️ Gerenciamento"],
-    "Vendas":  ["🚗 Propostas", "🎴 Card",
-                "🔍 Comparativo", "🚘 Estoque"],
-    "Parceiro":["🚗 Propostas", "🎴 Card"],
+    "Staff":      ["🚗 Propostas", "🎴 Card", "🔍 Comparativo",
+                   "📈 Performance", "🚘 Estoque", "🚙 Controle Usados",
+                   "👥 Usuários", "🛠️ Gerenciamento"],
+    "Vendas":     ["🚗 Propostas", "🎴 Card",
+                   "🔍 Comparativo", "🚘 Estoque"],
+    "Parceiro":   ["🚗 Propostas", "🎴 Card"],
+    "Entregador": ["📅 Agenda de Entregas", "🚙 Controle Usados"],
 }
 
 
