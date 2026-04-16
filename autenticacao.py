@@ -241,46 +241,49 @@ def resetar_senha_usuario(email: str, nova_senha: str) -> bool:
     return ok
 
 
+# ── Seletor de tema global ───────────────────────────────
+def render_tema_selector(location="sidebar"):
+    if "app_tema" not in st.session_state:
+        st.session_state["app_tema"] = "light"
+
+    tema_atual = st.session_state["app_tema"]
+    is_dark    = tema_atual == "dark"
+
+    if location == "sidebar":
+        novo = st.sidebar.toggle("🌙 Modo Dark", value=is_dark, key="toggle_tema_sidebar")
+    else:
+        novo = st.toggle("🌙 Modo Dark", value=is_dark, key="toggle_tema_inline")
+
+    if novo != is_dark:
+        st.session_state["app_tema"] = "dark" if novo else "light"
+        st.rerun()
+
+
+def aplicar_tema():
+    tema = st.session_state.get("app_tema", "light")
+    if tema == "dark":
+        st.markdown(
+            "<style>"
+            "[data-testid='stAppViewContainer'] > .main { background: #0f172a !important; }"
+            ".stApp { background: #0f172a !important; }"
+            "[data-testid='stSidebar'] > div:first-child { background: #1e293b !important; }"
+            "</style>",
+            unsafe_allow_html=True
+        )
+
+
 # ── Tela de login ────────────────────────────────────────
 def render_login():
-    st.markdown("""
-    <style>
-    [data-testid="stSidebar"] {display: none;}
-    .block-container {padding-top: 0 !important;}
-    .login-wrap {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-    }
-    .login-box {
-        background: #fff;
-        border-radius: 24px;
-        padding: 48px 44px 40px 44px;
-        max-width: 440px;
-        width: 100%;
-        box-shadow: 0 20px 60px rgba(33,49,68,0.12);
-        text-align: center;
-    }
-    .login-title {
-        font-size: 26px;
-        font-weight: 800;
-        color: #213144;
-        margin: 20px 0 6px 0;
-    }
-    .login-sub {
-        font-size: 14px;
-        color: #64748b;
-        margin-bottom: 32px;
-    }
-    .login-divider {
-        height: 1px;
-        background: #e2e8f0;
-        margin: 24px 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    aplicar_tema()
+    st.markdown(
+        "<style>"
+        "[data-testid='stToolbar'] {display: none !important;}"
+        "header[data-testid='stHeader'] {display: none !important;}"
+        "[data-testid='stSidebar'] {display: none;}"
+        ".block-container {padding-top: 0 !important;}"
+        "</style>",
+        unsafe_allow_html=True
+    )
 
     _, col_c, _ = st.columns([1, 2, 1])
     with col_c:
@@ -333,6 +336,9 @@ def render_login():
                     st.rerun()
                 else:
                     st.error("E-mail ou senha incorretos.")
+
+        # ── Tema ─────────────────────────────────────────
+        render_tema_selector(location="inline")
 
         # ── Esqueci minha senha ──────────────────────────
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -399,6 +405,7 @@ def render_sidebar_user():
 def render_sidebar_sair():
     """Botão Sair — chamar no app.py após as abas."""
     st.sidebar.markdown("---")
+    render_tema_selector(location="sidebar")
     if st.sidebar.button("🚪 Sair", use_container_width=True, key="auth_sair"):
         registrar_log(
             st.session_state.get("auth_nome",""),

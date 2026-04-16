@@ -13,7 +13,8 @@ from utils import formatar_valor_brl, valor_para_float, data_validade_mes_atual
 from autenticacao import (
     render_login, render_sidebar_user, render_sidebar_sair, render_usuarios,
     is_logado, is_staff, abas_permitidas,
-    carregar_sessao, salvar_sessao
+    carregar_sessao, salvar_sessao,
+    render_tema_selector, aplicar_tema
 )
 
 # Páginas
@@ -87,6 +88,8 @@ if not is_logado():
 if not is_logado():
     render_login()
     st.stop()
+
+aplicar_tema()
 
 
 # =========================================================
