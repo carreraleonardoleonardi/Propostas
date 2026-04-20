@@ -517,17 +517,17 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
         val(f"{sv('data_entrega')}   {sv('hora_entrega')}", C2, TY-RH-0.37*cm)
         hsep(TY - RH*1.82)
 
-        # Linha 3 — Chassi | Quem Procurar?
+        # Linha 3 — Chassi | Entregador
         lbl("Chassi",    LX, TY-2*RH)
         val(sv("chassi"), LX, TY-2*RH-0.37*cm)
-        lbl("Quem Procurar?", C2, TY-2*RH)
+        lbl("Entregador", C2, TY-2*RH)
         val(sv("entregador") if sv("entregador")!="—" else "—", C2, TY-2*RH-0.37*cm)
         hsep(TY - RH*2.82)
 
         # Linha 4 — Cor | Consultor
         lbl("Cor",       LX, TY-3*RH)
         val(sv("cor"),   LX, TY-3*RH-0.37*cm)
-        lbl("Meu Consultor", C2, TY-3*RH)
+        lbl("Consultor", C2, TY-3*RH)
         val(sv("consultor") if sv("consultor")!="—" else "—", C2, TY-3*RH-0.37*cm)
         hsep(TY - RH*3.82)
 
@@ -546,6 +546,7 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
         # Cada par: (label, valor) — o valor vem da planilha do segmento
         pares = [
             ("Central 24h:", c24_v),
+            ("Carrera Signature:", csig_v),
             ("Sem Parar:", csem_v),
         ]
         n_pares  = len(pares)
@@ -573,14 +574,14 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
 
         # Ícones embutidos como base64 — sem dependência de rede
         import base64 as _b64, tempfile as _tmp
-        _WA = "https://cdn-icons-png.flaticon.com/512/3670/3670051.png"
-        _IG = "https://cdn-icons-png.flaticon.com/512/174/174855.png"
-        _YT = "https://cdn-icons-png.flaticon.com/512/174/174883.png"
+        _WA = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAB9ElEQVR4nO1bQbbCIAxM+/5V6kqvVc+k16orPUxd4asIJQkpJB9m3cLMkNCxlgEKYVrmlXL963IfjuKyxWGTUAWncJQh4oNKC/chbYTYYEcL9yFlRPYgpYX7yDWCfXNt4T64Roycm7SJB+BzIhugUbwDhxu6bDQLDwHbEqgKsCYeAM85aYBF8Q4Y7n9Skz3PN6mhUDg9riLj7PYJxsHSwn1gjNjbD6ItYEE8lsOelqABVsQ75JjACkKaxDtwOf0YkFp9jeIdUtxC2lgV8J/wZYDl1XegVkHzFfAJQrmJTyqYYJFTjdMyry4biFRAafGSc44AtvM+F05z83tAN6A2gdoYJfq/Rj6QmHNa5tXs+wApNN8CYhVgKQht0YOQyCiG0Q2oTaA2ugESg1gNQgCG/xiRQm+BUl9jacTrch96BVAurpH4qKBy7BUAQPvASHMVULhlvRXWaAKX08cA6tNAkwlULlutWXuABhNyOXwZYCkTnB5Xlnhfo1gUDkFDhaTw0wKUKtjL/xrFh7SJV4BG4XsIboKYKgitvmbxMU3RpwA1HFkUD5B4DMZu3K6+ZuEA6YVk7wHahWORDEK+g8/zzYx4TBs3/7k8OflpN4KaZsm/BTTHZQ431o8hjSZwOfVjc1JEmj046aPZo7M+mj08HYPW4/Nv3G7lCi6ODTQAAAAASUVORK5CYII="
+        _IG = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACCElEQVR4nO2bPZLCMAyFlcxeCUo4GJRwMCjhUGylnaD1jyTbiuL4VQzEQd+zLBkmnsBIj8PtI7n+/L5OrWJZqtmXSIFzamVI9ZvWBqeqbUS1m7UGp6plRPFNrMGpSo1QD14bnEprxKwZ5A0eQB+T2ACP8ChNbOy08QweEndJsDJga/AA/JizBmwRHsWJXVUEe1LSgC3PPirHEDWgB3hUiiVoQE/wqBjTqAH0jR5nHxVi+ym54el1KRleTc/jXT32KwMks+8FHkAWC2VU1QBP8ChtTH8GcGffIzyKG9uSdXQBgL4rf0zIvPsMKGqDWsXa1hr1xdSAXL/Gzy2NmK3Wv2SzUrKxkehxuH1MaoAGyMqE5ksgBBJLcXrt83hvvhzMu0AKaI0i2NQAOqMcQHpN66VglgGS2TXtAmbf5FRmBnhsgwCNDdCsZ03dKJH5EkiZYDnzqOb7gNPrEuzv3LGtZZIBGhCrTjBbPY3lsQ2e39fJ9Ncggu325zDK0/+KYyMEYPdUpich88gAfMHNgjU2K1xxY1uyqjLAownamL4MkNQCTyZIYqGMRW3Qkwla/VsCPXeEENvoAqE3e8yCGFM0A3oyIcWSXAI9mJBjGDUgd8GWs4ATOysDtmgCN2YxmPenSaSTJa4BnrNBE5uqCHo0QRvTODZXK5DdHpyk2u3RWardHp6Oyevx+V/9b+oBw/MqvwAAAABJRU5ErkJggg=="
+        _YT = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAB2klEQVR4nO2b25KDIBBEG2v//5fdlx2LsCIX59Jo+jEVcfrQg6QiCU7agX3k+wlIVrUU97HRqOGWrICoD6ptvJQ2CLXBrI2X0gJxexBv46Xugpi+ONp4qVkQ28xFbOaB+ZqGATCaF83U1h0bZuNn6m2JrgSsZh7or7kJYEXzop7apxbBJ+kSwMqzL2p5qAJ4gnnRlZdTAE8yL6p5+q4B5Qfqs7/zhOnMm08CiCCU+gBg2vv7TgGi9Oi/BhBAyHUAcF35gyHkXuOeAiQtsQHBz/0gCOKZYx8QmAYOAKIACFwAAHcIybz/7xhK9n8O8SUgl0MauAEA5hD4AQCmT4k1AIgMIKwFAFBPw3oAREoQ1gWg9Ij8URnFU8p7g7USYLAxWiMBhjtC/gQYb4c3r7expmRsPgGJswUcfgSJ+FrA0TzABsDZPPAHIHwdSMndvHiOT0DArOc6ALinIGDWj1tnXmMSEDzruT4AuKQg2Hzp0W8fQDTruf61gEkKSMyfebNfA0jM13QKIHxfYKCap2oCngThystlCzwBQstD/E4wWE0AK6egp/auBKwIobfmYWPsb5GOTtbwGsCchpnaphZBRgizNX2PzWkV8tqDk6Vee3S21GsPT9fEenz+F4WldHkN6+BcAAAAAElFTkSuQmCC"
 
         redes = [
-            (_WA,  "WhatsApp", "https://wa.me/551140037214"),
-            (_IG,  "Instagram", "https://www.instagram.com/carrerasignature"),
-            (_YT,  "YouTube",  "https://www.youtube.com/@carrerasignature"),
+            (_WA,  "WhatsApp",  "Carrera Signature", "https://wa.me/551140037214"),
+            (_IG,  "Instagram", "@carrerasignature",  "https://www.instagram.com/carrerasignature"),
+            (_YT,  "YouTube",   "Carrera Signature",  "https://www.youtube.com/@carrerasignature"),
         ]
         n_redes = len(redes)
         rc_w    = W / n_redes
