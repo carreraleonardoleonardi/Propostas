@@ -495,7 +495,7 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
         c.rect(0, FY, W, FOOTER_H, fill=1, stroke=0)  # retângulo azul full-width
 
         # Telefones no footer — 6 colunas alternando label (branco) e valor (dourado)
-        col_w = W / 6  # ← divide a largura em 4 colunas iguais
+        col_w = W / 5  # ← divide a largura em 4 colunas iguais
         labels = ["Central 24h:", c24_v, "Carrera Signature.:", csig_v, "Sem Parar:", csem_v]
         for i, txt in enumerate(labels):
             bold = (i % 2 == 1)  # índices ímpares = valores em dourado
