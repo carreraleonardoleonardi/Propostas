@@ -915,9 +915,9 @@ def render():
             flt_con = st.selectbox("Consultor", cons, key="p_con")
 
         b1, b2, b3 = st.columns(3)
-        with b1: s_ch = st.text_input("🔑 Chassi",    placeholder="9BWBG...", key="b_ch")
-        with b2: s_pl = st.text_input("🪪 Placa",     placeholder="QSO8D24",  key="b_pl")
-        with b3: s_pe = st.text_input("📄 Nº Pedido", placeholder="12345",    key="b_pe")
+        with b1: s_ch = st.text_input("🔑 Chassi",    placeholder="Chassi", key="b_ch")
+        with b2: s_pl = st.text_input("🪪 Placa",     placeholder="Placa",  key="b_pl")
+        with b3: s_pe = st.text_input("📄 Nº Pedido", placeholder="Nº Pedido",    key="b_pe")
 
         dv = df_gv.copy()
         if flt_sta != "Todos": dv = dv[dv["status"]     == flt_sta]
