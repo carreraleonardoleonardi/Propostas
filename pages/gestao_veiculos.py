@@ -154,10 +154,10 @@ def gv_val_row(row, col, default=""):
 
 GV_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
 
 /* Reset */
-section[data-testid="stMain"] * { font-family: 'Inter', sans-serif !important; }
+section[data-testid="stMain"] * { font-family: 'Montserrat', sans-serif !important; }
 
 /* ── KPIs ── */
 .kpi-row { display:flex; gap:10px; margin:14px 0 22px; }
@@ -254,7 +254,42 @@ section[data-testid="stMain"] * { font-family: 'Inter', sans-serif !important; }
 
 CARD_SHEET_URL = "https://docs.google.com/spreadsheets/d/1RbDl9eD5MafLLQ0QisBy3KQzJOJSGqELyuyGEvZUfm8/export?format=csv&gid=0"
 
-CARD_SHEET_URL = "https://docs.google.com/spreadsheets/d/1RbDl9eD5MafLLQ0QisBy3KQzJOJSGqELyuyGEvZUfm8/export?format=csv&gid=0"
+# ── Registro da fonte Montserrat (fonte oficial Carrera Signature) ────────────
+_MONTSERRAT_REGISTERED = False
+
+def _registrar_montserrat():
+    """Baixa e registra Montserrat no ReportLab. Executado uma vez por sessão."""
+    global _MONTSERRAT_REGISTERED
+    if _MONTSERRAT_REGISTERED:
+        return True
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        import urllib.request, zipfile, io as _io, tempfile, os as _os
+
+        url = "https://fonts.google.com/download?family=Montserrat"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = r.read()
+
+        needed = {
+            "Montserrat-Regular":    "Montserrat/static/Montserrat-Regular.ttf",
+            "Montserrat-Bold":       "Montserrat/static/Montserrat-Bold.ttf",
+            "Montserrat-SemiBold":   "Montserrat/static/Montserrat-SemiBold.ttf",
+            "Montserrat-ExtraBold":  "Montserrat/static/Montserrat-ExtraBold.ttf",
+        }
+        tmpdir = tempfile.mkdtemp()
+        with zipfile.ZipFile(_io.BytesIO(data)) as z:
+            for font_name, zip_path in needed.items():
+                fname = _os.path.join(tmpdir, f"{font_name}.ttf")
+                with open(fname, "wb") as f:
+                    f.write(z.read(zip_path))
+                pdfmetrics.registerFont(TTFont(font_name, fname))
+
+        _MONTSERRAT_REGISTERED = True
+        return True
+    except Exception:
+        return False  # fallback para Helvetica
 
 @st.cache_data(ttl=600, show_spinner="Carregando dados dos segmentos...")
 def _load_card_data() -> list:
@@ -331,6 +366,13 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
     info = card_lookup(seg, sv("loja_entrega"))
     def inf(k, fb=""): return info.get(k, fb) or fb
 
+    # Tenta registrar Montserrat — usa Helvetica se falhar
+    _mont = _registrar_montserrat()
+    R  = "Montserrat"         if _mont else "Helvetica"        # Regular
+    B  = "Montserrat-Bold"    if _mont else "Helvetica-Bold"   # Bold
+    SB = "Montserrat-SemiBold"if _mont else "Helvetica-Bold"   # SemiBold
+    XB = "Montserrat-ExtraBold"if _mont else "Helvetica-Bold"  # ExtraBold
+
     # ── Paleta ──────────────────────────────────────────
     AZUL     = colors.HexColor("#213144")
     AZUL2    = colors.HexColor("#2e4a6b")
@@ -345,10 +387,10 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
     MG     = 1.5*cm   # ← MARGEM LATERAL do PDF (esquerda e direita)
 
     # ── Alturas das seções (calculadas de baixo para cima) ──────────────────
-    FOOTER_H = 1.1*cm  # ← ALTURA da faixa azul do rodapé (telefones)
-    RODAPE_H = 0.6*cm  # ← ALTURA da linha "Carrera Signature · Gerado em"
-    AVISO_H  = 0.8*cm  # ← ALTURA da linha de aviso de reagendamento
-    BOTTOM_H = FOOTER_H + RODAPE_H + AVISO_H + 0.6*cm  # total da área inferior
+    FOOTER_H  = 1.3*cm  # ← ALTURA da faixa azul do rodapé (telefones)
+    REDES_H   = 0.9*cm  # ← ALTURA da faixa de redes sociais (acima do footer)
+    AVISO_H   = 0.7*cm  # ← ALTURA da linha de aviso de reagendamento
+    BOTTOM_H  = FOOTER_H + REDES_H + AVISO_H + 0.5*cm  # total da área inferior
 
     HEADER_H = H * 0.24  # ← ALTURA do bloco azul do topo (% da página — aumente para mais azul)
     CARD_H   = 6.0*cm    # ← ALTURA do card branco com os dados do agendamento
@@ -385,22 +427,28 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
                          H-0.7*cm-r*0.27*cm, 0.038*cm, fill=1, stroke=0)
 
         # Logo Carrera Signature (PNG local com fundo preto transparente)
+        logo_x = MG; logo_y = H-3.0*cm
+        logo_w = 4.5*cm; logo_h = 2.2*cm
         if os.path.exists(logo_path):
-            c.drawImage(logo_path, MG, H-3.0*cm,
-                        width=4.5*cm,   # ← LARGURA da logo
-                        height=2.2*cm,  # ← ALTURA da logo
+            c.drawImage(logo_path, logo_x, logo_y,
+                        width=logo_w,   # ← LARGURA da logo
+                        height=logo_h,  # ← ALTURA da logo
                         preserveAspectRatio=True, mask=[0,30,0,30,0,30])
         else:
-            c.setFont("Helvetica-Bold",16); c.setFillColor(BRANCO)
-            c.drawString(MG, H-2.5*cm, "Carrera Signature")
+            c.setFont(B,16); c.setFillColor(BRANCO)
+            c.drawString(logo_x, logo_y+0.5*cm, "Carrera Signature")
+        # Logo clicável — abre site da Carrera Signature
+        c.linkURL("https://www.carrerasignature.com.br",
+                  (logo_x, logo_y, logo_x+logo_w, logo_y+logo_h),
+                  relative=0)
 
         # Título principal do header
-        c.setFont("Helvetica-Bold", 20)  # ← TAMANHO do título "Chegou a hora..."
+        c.setFont(XB, 20)  # ← TAMANHO do título "Chegou a hora..."
         c.setFillColor(BRANCO)
         c.drawString(MG, H-3.8*cm, "Chegou a hora de pegar seu carro!")
 
         # Subtítulo abaixo do título
-        c.setFont("Helvetica", 8.5)  # ← TAMANHO do subtítulo dourado
+        c.setFont(R, 8.5)  # ← TAMANHO do subtítulo dourado
         c.setFillColor(DOURADO2)
         c.drawString(MG, H-4.3*cm,
                      "Aqui estão as informações para a retirada do seu veículo.")
@@ -422,12 +470,12 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
         LX  = CX + 0.9*cm        # ← POSIÇÃO X da coluna esquerda (Cliente, Veículo, Chassi...)
         C2  = CX + CW_BODY*0.52  # ← POSIÇÃO X da coluna direita (Placa, Data, Entregador...)
         TY  = CY - 0.65*cm       # ← POSIÇÃO Y do topo do conteúdo dentro do card
-        RH  = 1.10*cm            # ← ESPAÇAMENTO vertical entre cada linha do card
+        RH  = 1.08*cm            # ← ESPAÇAMENTO vertical entre cada linha do card
         SZ  = 10                  # ← TAMANHO DA FONTE de todos os valores do card
-        FB  = "Helvetica-Bold"    # ← FONTE de todos os valores (negrito)
+        FB  = B                   # ← FONTE de todos os valores (Montserrat Bold)
 
         def lbl(t, x, y):
-            c.setFont("Helvetica-Bold", 8)  # ← TAMANHO dos labels (CLIENTE, PLACA, etc.)
+            c.setFont(B, 7)  # ← TAMANHO dos labels (CLIENTE, PLACA, etc.)
             c.setFillColor(DOURADO)          # cor dourada dos labels
             c.drawString(x, y, t.upper())
 
@@ -438,8 +486,8 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
 
         def hsep(y):
             # Linha separadora horizontal entre as linhas do card
-            c.setStrokeColor(CINZA_BD); c.setLineWidth(0.6)
-            c.line(LX-0.1*cm, y, CX+CW_BODY-0.6*cm, y)
+            c.setStrokeColor(CINZA_BD); c.setLineWidth(0.4)
+            c.line(LX-0.1*cm, y, CX+CW_BODY-0.5*cm, y)
 
         # Largura máxima de texto por coluna (em pontos) — evita sobreposição
         MAX_L = CW_BODY * 0.48   # ← LARGURA MÁXIMA da coluna esquerda (48% do corpo)
@@ -466,20 +514,20 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
         modelo_txt = f"{sv('modelo')}  ·  {sv('fabricante')}"
         val(truncate(modelo_txt, MAX_L), LX, TY-RH-0.37*cm)
         lbl("Data  ·  Hora", C2, TY-RH)
-        val(f"{sv('data_entrega')}   {sv('hora_entrega')}", C2, TY-RH-0.39*cm)
+        val(f"{sv('data_entrega')}   {sv('hora_entrega')}", C2, TY-RH-0.37*cm)
         hsep(TY - RH*1.82)
 
-        # Linha 3 — Chassi | Entregador
+        # Linha 3 — Chassi | Quem Procurar?
         lbl("Chassi",    LX, TY-2*RH)
-        val(sv("chassi"), LX, TY-2*RH-0.39*cm)
-        lbl("Entregador", C2, TY-2*RH)
-        val(sv("entregador") if sv("entregador")!="—" else "—", C2, TY-2*RH-0.39*cm)
+        val(sv("chassi"), LX, TY-2*RH-0.37*cm)
+        lbl("Quem Procurar?", C2, TY-2*RH)
+        val(sv("entregador") if sv("entregador")!="—" else "—", C2, TY-2*RH-0.37*cm)
         hsep(TY - RH*2.82)
 
         # Linha 4 — Cor | Consultor
         lbl("Cor",       LX, TY-3*RH)
         val(sv("cor"),   LX, TY-3*RH-0.37*cm)
-        lbl("Consultor", C2, TY-3*RH)
+        lbl("Meu Consultor", C2, TY-3*RH)
         val(sv("consultor") if sv("consultor")!="—" else "—", C2, TY-3*RH-0.37*cm)
         hsep(TY - RH*3.82)
 
@@ -489,28 +537,101 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
         local_txt   = f"{sv('loja_entrega')}   ·   {endereco}"
         val(truncate(local_txt, CW_BODY-1.5*cm), LX, TY-4*RH-0.37*cm)
 
-        # ── Footer azul (full width — de borda a borda) ──
+        # ── Footer azul (full width — de borda a borda) ──────────────────
         FY = 0  # posição Y do footer (começa do zero = base da página)
         c.setFillColor(AZUL)
         c.rect(0, FY, W, FOOTER_H, fill=1, stroke=0)  # retângulo azul full-width
 
-        # Telefones no footer — 6 colunas alternando label (branco) e valor (dourado)
-        col_w = W / 6  # ← divide a largura em 4 colunas iguais
-        labels = ["Atendimento 24h:", c24_v, "Carrera Signature.:", csig_v, "Central Sem Parar:", csem_v]
-        for i, txt in enumerate(labels):
-            bold = (i % 2 == 1)  # índices ímpares = valores em dourado
-            c.setFont("Helvetica-Bold", 7.5 if not bold else 9.5)  # ← TAMANHO dos telefones
-            c.setFillColor(DOURADO2 if bold else BRANCO)
-            c.drawCentredString(col_w*i + col_w/2, FY + 0.35*cm, txt)
+        # Monta pares label + valor dinamicamente
+        # Cada par: (label, valor) — o valor vem da planilha do segmento
+        pares = [
+            ("Central 24h:", c24_v),
+            ("Sem Parar:", csem_v),
+        ]
+        n_pares  = len(pares)
+        col_w    = W / n_pares   # divide igualmente entre os pares
+        linha_y  = FY + FOOTER_H * 0.6  # linha de cima (label)
+        valor_y  = FY + FOOTER_H * 0.18 # linha de baixo (valor)
 
-        # Aviso de reagendamento (acima do footer azul)
-        c.setFont("Helvetica-Bold", 8)  # ← TAMANHO do aviso de reagendamento
+        for i, (label, valor) in enumerate(pares):
+            cx = col_w * i + col_w / 2  # centro de cada coluna
+            # Label (branco, menor)
+            c.setFont(R, 7); c.setFillColor(BRANCO)
+            c.drawCentredString(cx, linha_y, label)
+            # Valor (dourado, maior, negrito) — adapta tamanho se texto longo
+            from reportlab.pdfbase.pdfmetrics import stringWidth
+            sz_val = 9.5
+            while sz_val > 6 and stringWidth(valor, B, sz_val) > col_w - 8:
+                sz_val -= 0.5
+            c.setFont(B, sz_val); c.setFillColor(DOURADO2)
+            c.drawCentredString(cx, valor_y, valor)
+
+        # ── Faixa de redes sociais (acima do footer azul) ─────────────────
+        RY = FOOTER_H
+        c.setFillColor(colors.HexColor("#1a2a3a"))
+        c.rect(0, RY, W, REDES_H, fill=1, stroke=0)
+
+        # Ícones embutidos como base64 — sem dependência de rede
+        import base64 as _b64, tempfile as _tmp
+        _WA = "https://cdn-icons-png.flaticon.com/512/3670/3670051.png"
+        _IG = "https://cdn-icons-png.flaticon.com/512/174/174855.png"
+        _YT = "https://cdn-icons-png.flaticon.com/512/174/174883.png"
+
+        redes = [
+            (_WA,  "WhatsApp",  "Carrera Signature", "https://wa.me/551140037214"),
+            (_IG,  "Instagram", "@carrerasignature",  "https://www.instagram.com/carrerasignature"),
+            (_YT,  "YouTube",   "Carrera Signature",  "https://www.youtube.com/@carrerasignature"),
+        ]
+        n_redes = len(redes)
+        rc_w    = W / n_redes
+        icon_sz = 0.38*cm   # ← TAMANHO dos ícones das redes
+        ry_mid  = RY + REDES_H / 2
+
+        for i, (b64_str, rede, handle, url) in enumerate(redes):
+            cx  = rc_w * i + rc_w / 2
+            rx0 = rc_w * i; rx1 = rx0 + rc_w
+
+            # Escreve PNG temporário a partir do base64
+            try:
+                icon_data = _b64.b64decode(b64_str)
+                with _tmp.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+                    tf.write(icon_data); tf_path = tf.name
+                # Calcula posição: ícone + texto centralizados juntos na coluna
+                gap     = 0.1*cm
+                from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+                txt_w   = max(_sw(rede, B, 7.5),
+                              _sw(handle, R, 6.5))
+                total_w = icon_sz + gap + txt_w
+                ix      = cx - total_w / 2
+                tx      = ix + icon_sz + gap
+                icon_y  = ry_mid - icon_sz / 2 + 0.02*cm
+                c.drawImage(tf_path, ix, icon_y,
+                            width=icon_sz, height=icon_sz,
+                            preserveAspectRatio=True, mask="auto")
+                os.unlink(tf_path)
+                c.setFont(B, 7.5); c.setFillColor(BRANCO)
+                c.drawString(tx, ry_mid + 0.07*cm, rede)
+                c.setFont(R, 6.5); c.setFillColor(DOURADO2)
+                c.drawString(tx, ry_mid - 0.17*cm, handle)
+            except Exception:
+                # Fallback: só texto centralizado
+                c.setFont(B, 7.5); c.setFillColor(BRANCO)
+                c.drawCentredString(cx, ry_mid + 0.08*cm, rede)
+                c.setFont(R, 6.5); c.setFillColor(DOURADO2)
+                c.drawCentredString(cx, ry_mid - 0.18*cm, handle)
+
+            # Área clicável
+            c.linkURL(url, (rx0+2, RY+2, rx1-2, RY+REDES_H-2), relative=0)
+
+        # ── Aviso de reagendamento (acima das redes) ──────────────────────
+        aviso_y = RY + REDES_H + 0.18*cm
+        c.setFont(B, 7.5)  # ← TAMANHO do aviso de reagendamento
         c.setFillColor(AZUL)
-        c.drawCentredString(W/2, FOOTER_H + 0.25*cm, aviso_v)
+        c.drawCentredString(W/2, aviso_y, aviso_v)
 
-        # Linha dourada separando aviso do grid
+        # Linha dourada separando aviso do grid informativo
         c.setStrokeColor(DOURADO2); c.setLineWidth(1.0)
-        c.line(MG, FOOTER_H + AVISO_H + 0.1*cm, W-MG, FOOTER_H + AVISO_H + 0.1*cm)
+        c.line(MG, aviso_y + 0.42*cm, W-MG, aviso_y + 0.42*cm)
 
         c.restoreState()
 
@@ -523,12 +644,12 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
 
     # ── Estilos do grid de informações (Importante, SAC, etc.) ─────────────
     def sty(name, **kw):
-        base = dict(fontName="Helvetica", fontSize=9, textColor=AZUL,
+        base = dict(fontName=R, fontSize=9, textColor=AZUL,
                     leading=14, spaceAfter=0)
         base.update(kw); return ParagraphStyle(name, **base)
 
     st_sl = sty("sl",
-                fontName="Helvetica-Bold",
+                fontName=B,
                 fontSize=8.5,        # ← TAMANHO do título de cada card (✓ Importante, ✓ SAC...)
                 textColor=DOURADO,   # cor dourada dos títulos
                 spaceAfter=4,        # espaço abaixo do título antes do texto
@@ -608,422 +729,6 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
             fy = BODY_BOT
             fh = BODY_TOP - BODY_BOT
             fr = Frame(MG, fy, CW_BODY, fh, id="b",
-                       leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
-            self.addPageTemplates([PageTemplate(id="p", frames=[fr], onPage=draw_page)])
-
-    CardDoc(buf, pagesize=A4).build(story)
-    return buf.getvalue()
-
-    def sv(c): return sv_fn(row, c)
-
-    seg  = segmento if segmento else sv("locadora")
-    info = card_lookup(seg, sv("loja_entrega"))
-    def inf(k, fb=""): return info.get(k, fb) or fb
-
-    # ── Paleta ──────────────────────────────────────────
-    AZUL     = colors.HexColor("#213144")
-    AZUL2    = colors.HexColor("#2e4a6b")
-    DOURADO  = colors.HexColor("#b57b3f")
-    DOURADO2 = colors.HexColor("#dfc28a")
-    BRANCO   = colors.white
-    CINZA    = colors.HexColor("#475569")
-    CINZA_BG = colors.HexColor("#f4f2ef")
-    CINZA_BD = colors.HexColor("#ddd8d0")
-
-    W, H     = A4
-    MG       = 1.5*cm          # margem lateral
-    CW_BODY  = W - 2*MG        # largura do corpo
-
-    # Proporções verticais
-    HEADER_H = H * 0.25        # topo azul (mais compacto)
-    CARD_TOP = H - HEADER_H - 0.5*cm
-    CARD_H   = 5.6*cm          # card de dados (mais alto)
-    CARD_X   = MG
-    CARD_W   = CW_BODY
-    BODY_TOP = CARD_TOP - CARD_H - 0.5*cm
-
-    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "..", "LOGO_SIGNATURE.png")
-
-    # ── Canvas: background + header + card ──────────────
-    def draw_page(c, doc):
-        c.saveState()
-
-        # Fundos
-        c.setFillColor(AZUL);   c.rect(0, H-HEADER_H, W, HEADER_H, fill=1, stroke=0)
-        c.setFillColor(BRANCO); c.rect(0, 0, W, H-HEADER_H, fill=1, stroke=0)
-
-        # Faixa dourada
-        c.setFillColor(DOURADO); c.rect(0, H-HEADER_H-3, W, 6, fill=1, stroke=0)
-
-        # Pontos decorativos
-        c.setFillColor(AZUL2)
-        for r in range(6):
-            for col in range(6):
-                c.circle(W-1.2*cm-col*0.28*cm, H-0.8*cm-r*0.28*cm, 0.04*cm, fill=1, stroke=0)
-
-        # Logo
-        if os.path.exists(logo_path):
-            c.drawImage(logo_path, MG, H-3.0*cm, width=4.6*cm, height=2.2*cm,
-                        preserveAspectRatio=True, mask=[0,30,0,30,0,30])
-        else:
-            c.setFont("Helvetica-Bold", 16); c.setFillColor(BRANCO)
-            c.drawString(MG, H-2.4*cm, "Carrera Signature")
-
-        # Título
-        c.setFont("Helvetica-Bold", 20); c.setFillColor(BRANCO)
-        c.drawString(MG, H-3.8*cm, "Chegou a hora de pegar seu carro!")
-
-        # Subtítulo
-        c.setFont("Helvetica", 8.5); c.setFillColor(DOURADO2)
-        c.drawString(MG, H-4.3*cm, "Aqui estão as informações para a retirada do seu veículo.")
-
-        # ── Card de dados ────────────────────────────────
-        CX, CY = CARD_X, CARD_TOP
-
-        # Sombra
-        c.setFillColor(colors.HexColor("#c0b8a8"))
-        c.roundRect(CX+3, CY-CARD_H-3, CARD_W, CARD_H, 8, fill=1, stroke=0)
-        # Fundo branco
-        c.setFillColor(BRANCO)
-        c.roundRect(CX, CY-CARD_H, CARD_W, CARD_H, 8, fill=1, stroke=0)
-        # Stripe dourada
-        c.setFillColor(DOURADO)
-        c.roundRect(CX, CY-CARD_H, 6, CARD_H, 3, fill=1, stroke=0)
-
-        # Constantes de layout do card
-        LX  = CX + 0.8*cm      # coluna esquerda
-        C2  = CX + CARD_W*0.50 # coluna direita
-        TY  = CY - 0.6*cm      # topo do conteúdo
-        RH  = 1.04*cm          # altura de cada linha
-        LBL = 7                 # tamanho label
-        VAL = 10                # tamanho valor (padronizado)
-
-        def lbl(t, x, y):
-            c.setFont("Helvetica-Bold", LBL)
-            c.setFillColor(DOURADO)
-            c.drawString(x, y, t.upper())
-
-        def val(t, x, y, bold=False, sz=VAL):
-            c.setFont("Helvetica-Bold" if bold else "Helvetica", sz)
-            c.setFillColor(AZUL)
-            c.drawString(x, y, str(t))
-
-        def hsep(y):
-            c.setStrokeColor(CINZA_BD); c.setLineWidth(0.4)
-            c.line(LX, y, CX+CARD_W-0.6*cm, y)
-
-        # Linha 1 — Cliente | Placa
-        cliente_val = sv("cliente")
-        if cliente_val in ("—","Estoque","","nan"): cliente_val = "—"
-        lbl("Cliente",          LX, TY)
-        val(cliente_val,        LX, TY-0.36*cm, bold=True, sz=VAL)
-        lbl("Placa",            C2, TY)
-        val(sv("placa"),        C2, TY-0.36*cm, bold=True, sz=VAL+2)
-        hsep(TY - RH*0.78)
-
-        # Linha 2 — Veículo | Data · Hora
-        lbl("Veículo",          LX, TY-RH)
-        val(f"{sv('modelo')}  ·  {sv('fabricante')}", LX, TY-RH-0.36*cm, sz=VAL)
-        lbl("Data  ·  Hora",    C2, TY-RH)
-        val(f"{sv('data_entrega')}   {sv('hora_entrega')}", C2, TY-RH-0.36*cm, bold=True, sz=VAL)
-        hsep(TY - RH*1.78)
-
-        # Linha 3 — Chassi | Entregador
-        lbl("Chassi",           LX, TY-2*RH)
-        val(sv("chassi"),       LX, TY-2*RH-0.36*cm, sz=VAL)
-        lbl("Entregador",       C2, TY-2*RH)
-        val(sv("entregador") if sv("entregador")!="—" else "—",
-                                C2, TY-2*RH-0.36*cm, sz=VAL)
-        hsep(TY - RH*2.78)
-
-        # Linha 4 — Cor | Consultor
-        lbl("Cor",              LX, TY-3*RH)
-        val(sv("cor"),          LX, TY-3*RH-0.36*cm, sz=VAL)
-        lbl("Consultor",        C2, TY-3*RH)
-        val(sv("consultor") if sv("consultor")!="—" else "—",
-                                C2, TY-3*RH-0.36*cm, sz=VAL)
-        hsep(TY - RH*3.78)
-
-        # Linha 5 — Local de entrega (full width)
-        lbl("Local de Entrega", LX, TY-4*RH)
-        endereco = inf("endereco_entrega") or sv("loja_entrega")
-        val(f"{sv('loja_entrega')}   ·   {endereco}",
-                                LX, TY-4*RH-0.36*cm, bold=True, sz=VAL)
-
-        c.restoreState()
-
-    # ── Estilos do corpo (todos tamanho 8.5) ────────────
-    def sty(name, **kw):
-        base = dict(fontName="Helvetica", fontSize=8.5, textColor=AZUL,
-                    leading=13, spaceAfter=0)
-        base.update(kw); return ParagraphStyle(name, **base)
-
-    st_sl = sty("sl", fontName="Helvetica-Bold", fontSize=8.5,
-                textColor=DOURADO, spaceAfter=3, leading=11)
-    st_sb = sty("sb", textColor=CINZA, leading=12)
-    st_av = sty("av", fontName="Helvetica-Bold", textColor=AZUL, alignment=TA_CENTER)
-    st_tl = sty("tl", fontName="Helvetica-Bold", fontSize=8,    textColor=BRANCO, leading=11)
-    st_tv = sty("tv", fontName="Helvetica-Bold", fontSize=10,   textColor=DOURADO2, leading=11)
-    st_rd = sty("rd", fontSize=7.5, textColor=CINZA, alignment=TA_CENTER)
-
-    HW = CW_BODY/2 - 0.3*cm
-
-    # ── Grid informativo ────────────────────────────────
-    def info_cell(titulo, corpo):
-        return Table([
-            [Paragraph(f"✓  {titulo}", st_sl)],
-            [Paragraph(corpo or "—",   st_sb)],
-        ], colWidths=[HW])
-
-    grid = Table([
-        [info_cell("Importante",   inf("importante")),
-         info_cell("Combustível",  inf("combustivel"))],
-        [info_cell("Sem Parar",    inf("sem_parar")),
-         info_cell("SAC",          inf("sac"))],
-        [info_cell("Revisões",     inf("revisoes")),
-         info_cell("Local Revisão",inf("local_revisao"))],
-    ], colWidths=[HW, HW])
-    grid.setStyle(TableStyle([
-        ("VALIGN",       (0,0),(-1,-1), "TOP"),
-        ("BACKGROUND",   (0,0),(-1,-1), CINZA_BG),
-        ("BOX",          (0,0),(-1,-1), 0.5, CINZA_BD),
-        ("INNERGRID",    (0,0),(-1,-1), 0.5, CINZA_BD),
-        ("LEFTPADDING",  (0,0),(-1,-1), 10),
-        ("RIGHTPADDING", (0,0),(-1,-1), 10),
-        ("TOPPADDING",   (0,0),(-1,-1), 9),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 9),
-    ]))
-
-    # ── Telefones (footer azul — largura total da página) ──
-    aviso = inf("aviso_reagendamento",
-                "Atrasos maiores que 30 min para a retirada estão sujeitos a reagendamento")
-    c24   = inf("central_24hrs",    "0800 071 8090")
-    csig  = inf("carrera_signature","4003-7214")
-    csem  = inf("central_sem_parar","0800 724 2467")
-
-    # 6 colunas iguais, ocupando CW_BODY inteiro
-    CW6 = CW_BODY / 6
-    tels = Table([[
-        Paragraph("Central 24h:", st_tl), Paragraph(c24,  st_tv),
-        Paragraph("Carrera Sig.:",st_tl), Paragraph(csig, st_tv),
-        Paragraph("Sem Parar:",   st_tl), Paragraph(csem, st_tv),
-    ]], colWidths=[CW6]*6)
-    tels.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0),(-1,-1), AZUL),
-        ("VALIGN",       (0,0),(-1,-1), "MIDDLE"),
-        ("LEFTPADDING",  (0,0),(-1,-1), 8),
-        ("RIGHTPADDING", (0,0),(-1,-1), 8),
-        ("TOPPADDING",   (0,0),(-1,-1), 8),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 8),
-    ]))
-
-    story = [
-        grid,
-        Spacer(1, 0.3*cm),
-        HRFlowable(width="100%", thickness=1.2, color=DOURADO2, spaceAfter=6),
-        Paragraph(aviso, st_av),
-        Spacer(1, 0.25*cm),
-        tels,
-        Spacer(1, 0.2*cm),
-        Paragraph(
-            f"Carrera Signature  ·  Gerado em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}",
-            st_rd
-        ),
-    ]
-
-    buf = io.BytesIO()
-
-    class CardDoc(BaseDocTemplate):
-        def __init__(self, bf, **kw):
-            super().__init__(bf, **kw)
-            fy = 1.2*cm
-            fh = BODY_TOP - fy
-            fr = Frame(MG, fy, CW_BODY, fh, id="b",
-                       leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
-            self.addPageTemplates([PageTemplate(id="p", frames=[fr], onPage=draw_page)])
-
-    CardDoc(buf, pagesize=A4).build(story)
-    return buf.getvalue()
-
-    def sv(c): return sv_fn(row, c)
-
-    seg  = segmento if segmento else sv("locadora")
-    info = card_lookup(seg, sv("loja_entrega"))
-    def inf(k, fb=""): return info.get(k, fb) or fb
-
-    # Cores
-    AZUL     = colors.HexColor("#213144")
-    AZUL2    = colors.HexColor("#2e4a6b")
-    DOURADO  = colors.HexColor("#b57b3f")
-    DOURADO2 = colors.HexColor("#dfc28a")
-    BRANCO   = colors.white
-    CINZA    = colors.HexColor("#64748b")
-    CINZA_BG = colors.HexColor("#f4f2ef")
-    CINZA_BD = colors.HexColor("#ddd8d0")
-
-    W, H = A4
-    HEADER_H = H * 0.32
-    CARD_TOP = H - HEADER_H - 0.4*cm
-    CARD_H   = 5.0*cm
-    CARD_X   = 1.5*cm
-    CARD_W   = W - 3*cm
-    BODY_TOP = CARD_TOP - CARD_H - 0.5*cm
-
-    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "..", "LOGO_SIGNATURE.png")
-
-    def draw_page(c, doc):
-        c.saveState()
-        c.setFillColor(AZUL);   c.rect(0, H-HEADER_H, W, HEADER_H, fill=1, stroke=0)
-        c.setFillColor(BRANCO); c.rect(0, 0, W, H-HEADER_H, fill=1, stroke=0)
-        c.setFillColor(DOURADO); c.rect(0, H-HEADER_H-3, W, 6, fill=1, stroke=0)
-        c.setFillColor(AZUL2)
-        for r in range(7):
-            for col in range(7):
-                c.circle(W-1.2*cm-col*0.3*cm, H-0.8*cm-r*0.3*cm, 0.045*cm, fill=1, stroke=0)
-        if os.path.exists(logo_path):
-            c.drawImage(logo_path, 1.4*cm, H-3.2*cm, width=5*cm, height=2.4*cm,
-                        preserveAspectRatio=True, mask=[0,30,0,30,0,30])
-        else:
-            c.setFont("Helvetica-Bold",18); c.setFillColor(BRANCO)
-            c.drawString(1.5*cm, H-2.5*cm, "Carrera Signature")
-        c.setFont("Helvetica-Bold", 22); c.setFillColor(BRANCO)
-        c.drawString(1.5*cm, H-4.1*cm, "Chegou a hora de pegar seu carro!")
-        c.setFont("Helvetica", 9); c.setFillColor(DOURADO2)
-        c.drawString(1.5*cm, H-4.6*cm, "Aqui estão as informações para a retirada do seu veículo.")
-
-        # Card
-        CX, CY = CARD_X, CARD_TOP
-        c.setFillColor(colors.HexColor("#c8c0b0"))
-        c.roundRect(CX+3, CY-CARD_H-3, CARD_W, CARD_H, 8, fill=1, stroke=0)
-        c.setFillColor(BRANCO)
-        c.roundRect(CX, CY-CARD_H, CARD_W, CARD_H, 8, fill=1, stroke=0)
-        c.setFillColor(DOURADO)
-        c.roundRect(CX, CY-CARD_H, 6, CARD_H, 3, fill=1, stroke=0)
-
-        LX = CX + 0.7*cm; C2 = CX + CARD_W*0.50; TY = CY - 0.55*cm; LH = 1.0*cm
-
-        def lbl(t, x, y):
-            c.setFont("Helvetica-Bold", 7); c.setFillColor(DOURADO); c.drawString(x, y, t.upper())
-        def val(t, x, y, font="Helvetica", sz=9.5, clr=None):
-            c.setFont(font, sz); c.setFillColor(clr or AZUL); c.drawString(x, y, str(t))
-        def hsep(y):
-            c.setStrokeColor(CINZA_BD); c.setLineWidth(0.5)
-            c.line(LX, y, CX+CARD_W-0.5*cm, y)
-
-        cliente_val = sv("cliente")
-        if cliente_val in ("—","Estoque","","nan"): cliente_val = "—"
-
-        lbl("Cliente",       LX, TY);                val(cliente_val, LX, TY-0.34*cm, "Helvetica-Bold", 12)
-        lbl("Placa",         C2, TY);                val(sv("placa"), C2, TY-0.34*cm, "Helvetica-Bold", 15)
-        hsep(TY - 0.72*cm)
-
-        lbl("Veículo",       LX, TY-LH);             val(f"{sv('modelo')}  ·  {sv('fabricante')}", LX, TY-LH-0.34*cm)
-        lbl("Data  ·  Hora", C2, TY-LH);             val(f"{sv('data_entrega')}   {sv('hora_entrega')}", C2, TY-LH-0.34*cm, "Helvetica-Bold", 10.5)
-        hsep(TY - 1.72*cm)
-
-        lbl("Chassi",        LX, TY-2.0*cm);         val(sv("chassi"),     LX, TY-2.34*cm)
-        lbl("Entregador",    C2, TY-2.0*cm);         val(sv("entregador") if sv("entregador")!="—" else "—", C2, TY-2.34*cm)
-        hsep(TY - 2.72*cm)
-
-        lbl("Cor",           LX, TY-3.0*cm);         val(sv("cor"),        LX, TY-3.34*cm)
-        lbl("Consultor",     C2, TY-3.0*cm);         val(sv("consultor")   if sv("consultor")  !="—" else "—", C2, TY-3.34*cm)
-        hsep(TY - 3.72*cm)
-
-        lbl("Local de Entrega", LX, TY-4.0*cm)
-        endereco = inf("endereco_entrega") or sv("loja_entrega")
-        val(f"{sv('loja_entrega')}   ·   {endereco}", LX, TY-4.34*cm, "Helvetica-Bold", 9)
-
-        c.restoreState()
-
-    # Estilos do corpo
-    FB = "Helvetica"; FB2 = "Helvetica-Bold"
-    def sty(name, **kw):
-        base = dict(fontName=FB, fontSize=8, textColor=AZUL, leading=12, spaceAfter=0)
-        base.update(kw); return ParagraphStyle(name, **base)
-
-    st_sl = sty("sl", fontName=FB2, fontSize=7.5, textColor=DOURADO, spaceAfter=2, leading=10)
-    st_sb = sty("sb", fontSize=8,   textColor=CINZA, leading=12)
-    st_av = sty("av", fontName=FB2, fontSize=8, textColor=AZUL, alignment=TA_CENTER)
-    st_tl = sty("tl", fontName=FB2, fontSize=7.5, textColor=BRANCO, leading=11)
-    st_tv = sty("tv", fontName=FB2, fontSize=10,  textColor=DOURADO2, leading=11)
-    st_rd = sty("rd", fontSize=7, textColor=CINZA, alignment=TA_CENTER, leading=10)
-    st_lj = sty("lj", fontSize=7.5, textColor=AZUL, alignment=TA_CENTER, leading=12)
-    st_sp = sty("sp", fontName=FB2, fontSize=9.5, textColor=DOURADO, alignment=TA_CENTER, spaceAfter=4)
-
-    HW = (W-3*cm)/2 - 0.3*cm
-
-    def info_cell(titulo, corpo):
-        return Table([[Paragraph(f"✓  {titulo}", st_sl)],
-                      [Paragraph(corpo or "—",   st_sb)]],
-                     colWidths=[HW])
-
-    grid = Table([
-        [info_cell("Importante",   inf("importante")),  info_cell("Combustível",   inf("combustivel"))],
-        [info_cell("Sem Parar",    inf("sem_parar")),   info_cell("SAC",           inf("sac"))],
-        [info_cell("Revisões",     inf("revisoes")),    info_cell("Local Revisão", inf("local_revisao"))],
-    ], colWidths=[HW, HW])
-    grid.setStyle(TableStyle([
-        ("VALIGN",       (0,0),(-1,-1),"TOP"),
-        ("BACKGROUND",   (0,0),(-1,-1),CINZA_BG),
-        ("BOX",          (0,0),(-1,-1),0.5,CINZA_BD),
-        ("INNERGRID",    (0,0),(-1,-1),0.5,CINZA_BD),
-        ("LEFTPADDING",  (0,0),(-1,-1),9),("RIGHTPADDING",(0,0),(-1,-1),9),
-        ("TOPPADDING",   (0,0),(-1,-1),8),("BOTTOMPADDING",(0,0),(-1,-1),8),
-    ]))
-
-    lojas_txt = (
-        "<b>Carrera Alphaville</b>  Alameda Araguaia, 2111&nbsp;&nbsp;·&nbsp;&nbsp;"
-        "<b>Carrera Villa Lobos</b>  R. Henri Bouchard, 127&nbsp;&nbsp;·&nbsp;&nbsp;"
-        "<b>Carrera Osasco</b>  Av. dos Autonomistas, 989&nbsp;&nbsp;·&nbsp;&nbsp;"
-        "<b>Carrera Perdizes</b>  Av. Sumaré, 1100"
-    )
-
-    c24  = inf("central_24hrs",   "0800 071 8090")
-    csig = inf("carrera_signature","4003-7214")
-    csem = inf("central_sem_parar","0800 724 2467")
-    aviso= inf("aviso_reagendamento","Atrasos maiores que 30 min sujeitos a reagendamento")
-
-    CW_TEL = [(W-3*cm)/6]*6
-    tels = Table([[
-        Paragraph("Central 24h:", st_tl), Paragraph(c24,  st_tv),
-        Paragraph("Carrera Sig.:",st_tl), Paragraph(csig, st_tv),
-        Paragraph("Sem Parar:",   st_tl), Paragraph(csem, st_tv),
-    ]], colWidths=CW_TEL)
-    tels.setStyle(TableStyle([
-        ("BACKGROUND",  (0,0),(-1,-1),AZUL),
-        ("VALIGN",      (0,0),(-1,-1),"MIDDLE"),
-        ("LEFTPADDING", (0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8),
-        ("TOPPADDING",  (0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),7),
-    ]))
-
-    story = [
-        grid,
-        Spacer(1, 0.25*cm),
-        HRFlowable(width="100%", thickness=1.2, color=DOURADO2, spaceAfter=5),
-        Paragraph("Grande São Paulo", st_sp),
-        Paragraph(lojas_txt, st_lj),
-        Spacer(1, 0.2*cm),
-        HRFlowable(width="100%", thickness=1.2, color=DOURADO2, spaceAfter=5),
-        Paragraph(aviso, st_av),
-        Spacer(1, 0.2*cm),
-        tels,
-        Spacer(1, 0.2*cm),
-        Paragraph(
-            f"Carrera Signature  ·  Gerado em {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}",
-            st_rd
-        ),
-    ]
-
-    buf = io.BytesIO()
-
-    class CardDoc(BaseDocTemplate):
-        def __init__(self, bf, **kw):
-            super().__init__(bf, **kw)
-            fy = 1.2*cm
-            fh = BODY_TOP - fy
-            fr = Frame(1.5*cm, fy, W-3*cm, fh, id="b",
                        leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
             self.addPageTemplates([PageTemplate(id="p", frames=[fr], onPage=draw_page)])
 
