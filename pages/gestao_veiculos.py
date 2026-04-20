@@ -578,9 +578,9 @@ def gerar_pdf_agendamento(row, sv_fn, segmento: str = "") -> bytes:
         _YT = "https://cdn-icons-png.flaticon.com/512/174/174883.png"
 
         redes = [
-            (_WA,  "WhatsApp",  "Carrera Signature", "https://wa.me/551140037214"),
-            (_IG,  "Instagram", "@carrerasignature",  "https://www.instagram.com/carrerasignature"),
-            (_YT,  "YouTube",   "Carrera Signature",  "https://www.youtube.com/@carrerasignature"),
+            (_WA,  "WhatsApp", "https://wa.me/551140037214"),
+            (_IG,  "Instagram", "https://www.instagram.com/carrerasignature"),
+            (_YT,  "YouTube",  "https://www.youtube.com/@carrerasignature"),
         ]
         n_redes = len(redes)
         rc_w    = W / n_redes
