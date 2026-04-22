@@ -1047,12 +1047,12 @@ def render():
                 else:
                     # Colunas completas (todos os 30 campos da base)
                     CABECALHO_XLS = [
-                        "FABRICANTE","MODELO","CHASSI","PLACA","COR",
-                        "ANO FABRICACAO","ANO MODELO","COMBUSTIVEL","OPCIONAIS",
-                        "LOCADORA","CONSULTOR","CLIENTE","PEDIDO","STATUS",
-                        "LOCAL ATUAL","DATA CHEGADA","DATA ENTREGA","HORA ENTREGA",
-                        "ENTREGADOR","AVARIA","OBS AVARIA","LOJA ENTREGA",
-                        "VALOR NF","MARGEM","COMISSAO",
+                            "FABRICANTE","MODELO","CHASSI","PLACA","COR",
+                            "ANO FABRICACAO","ANO MODELO","COMBUSTIVEL","OPCIONAIS",
+                            "LOCADORA","CONSULTOR","CLIENTE","PEDIDO","STATUS",
+                            "LOCAL ATUAL","DATA CHEGADA","DATA ENTREGA","HORA ENTREGA",
+                            "ENTREGADOR","AVARIA","OBS AVARIA","LOJA ENTREGA",
+                            "VALOR NF","MARGEM","COMISSAO",
                     ]
                     try:
                         import openpyxl
@@ -1060,12 +1060,7 @@ def render():
                         wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Importação"
                         ws.append(CABECALHO_XLS)
                         ws.append([
-                            "Volkswagen","T-Cross 1.0 200 TSI","9BWBH6BF3T4069466","QSY8H49",
-                            "Cinza Platinum - Metálico","2025","2025","Flex","",
-                            "LM FROTAS","Marine","Cliente Exemplo","12345","Trânsito Livre",
-                            "LOJA ALPHAVILLE","17/04/2025","17/04/2025","10:00",
-                            "Gabriel","Não","","LOJA ALPHAVILLE",
-                            "","","",
+
                         ])
                         for cell in ws[1]:
                             cell.font      = Font(bold=True, color="FFFFFF")
