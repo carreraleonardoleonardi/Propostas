@@ -17,8 +17,8 @@ GV_STATUS_LIST = [
     "Entregue", "Reagendar", "Avariado", "Distrato",
     "Remoção", "Reserva Temporária", "Evento Signature",
 ]
-GV_FABRICANTES  = ["VOLKSWAGEN","CHEVROLET","NISSAN","JEEP","GWM","RENAULT","HYUNDAI","TOYOTA","FIAT","FORD","OUTRO"]
-GV_LOCADORAS    = ["LM FROTAS","MOVE","RCI","TOOT","OUTRO"]
+GV_FABRICANTES  =  ["Volkswagen","Chevrolet","Nissan","Jeep","GWM","GAC","Omoda", "Renault","Hyundai","Toyota","Fiat","Ford","Honda","Citroën","Peugeot","Mitsubishi","Subaru","Chery","JAC","Lexus","Kia","Dodge","BMW","Mercedes-Benz","Audi","Porsche","Volvo","Mini","Land Rover","Jaguar","Alfa Romeo","Aston Martin","Bentley","Rolls-Royce","McLaren","Pagani","Bugatti","Koenigsegg","Zeekr","BYD","Leapmotor"]
+GV_LOCADORAS    = ["LM FROTAS","RCI","TOOT","GM Fleet", "Arval", "Localiza"]
 GV_LOJAS        = ["LOJA ALPHAVILLE","LOJA VILLA LOBOS","LOJA OSASCO","LOJA BUTANTÃ","LOJA COTIA","OUTRO DN"]
 GV_COMBUSTIVEIS = ["Flex","Gasolina","Elétrico","Híbrido","Diesel"]
 GV_COLUNAS      = [
@@ -82,7 +82,6 @@ def farol_idade(dias):
     if dias <= 20:   return "🟢"
     if dias <= 30:   return "🟡"
     if dias <= 45:   return "🔴"
-    return "⚫"
 
 def farol_agendamento(row):
     if str(row.get("status","")).strip() == "Entregue": return "🟢"
@@ -836,6 +835,7 @@ def render():
         livres    = len(df_gv[df_gv["status"] == "Livre"])
         trans_l   = len(df_gv[df_gv["status"] == "Trânsito Livre"])
         trans_v   = len(df_gv[df_gv["status"] == "Trânsito Vendido"])
+        ag_atr = len(df_gv[df_gv["status"] == "Aguardando Atribuição"])
         ag_ag     = len(df_gv[df_gv["status"] == "Aguardando Agendamento"])
         agend     = len(df_gv[df_gv["status"] == "Agendado"])
         avar      = len(df_gv[df_gv["status"] == "Avariado"])
@@ -872,6 +872,10 @@ def render():
           <div class="kpi-box">
             <div class="kpi-n" style="color:#8b5cf6">{trans_v}</div>
             <div class="kpi-l">Trânsito Vendido</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-n" style="color:#8b5cf6">{ag_atr}</div>
+            <div class="kpi-l">Aguardando Atribuição</div>
           </div>
           <div class="kpi-box">
             <div class="kpi-n" style="color:#f97316">{ag_ag}</div>
@@ -956,37 +960,61 @@ def render():
                 # ── Manual ────────────────────────────────
                 if "Manual" in modo:
                     with st.form("f_cad"):
+ 
+                        # ── Identificação ────────────────────────────
+                        st.markdown("**🔍 Identificação**")
                         c1, c2, c3 = st.columns(3)
                         with c1:
-                            fab   = st.selectbox("Fabricante *", GV_FABRICANTES)
-                            mod   = st.text_input("Modelo *")
-                            cor   = st.text_input("Cor *")
+                            fab    = st.selectbox("Fabricante *", GV_FABRICANTES)
+                            mod    = st.text_input("Modelo *")
+                            cor    = st.text_input("Cor *")
                         with c2:
                             chassi = st.text_input("Chassi *")
                             placa  = st.text_input("Placa")
                             comb   = st.selectbox("Combustível", GV_COMBUSTIVEIS)
                         with c3:
-                            anof = st.text_input("Ano Fabricação")
-                            anom = st.text_input("Ano Modelo")
-                            stc  = st.selectbox("Status Inicial", GV_STATUS_LIST)
-
+                            anof   = st.text_input("Ano Fabricação")
+                            anom   = st.text_input("Ano Modelo")
+                            opc    = st.text_input("Opcionais")
+ 
+                        # ── Operacional ──────────────────────────────
+                        st.markdown("**🏢 Operacional**")
                         o1, o2, o3 = st.columns(3)
                         with o1:
-                            loc   = st.selectbox("Locadora", GV_LOCADORAS)
-                            consc = st.text_input("Consultor")
+                            loc    = st.selectbox("Locadora", GV_LOCADORAS)
+                            consc  = st.text_input("Consultor")
+                            stc    = st.selectbox("Status Inicial", GV_STATUS_LIST)
                         with o2:
                             clic   = st.text_input("Cliente")
+                            pedido = st.text_input("Nº Pedido")
                             localc = st.text_input("Local Atual")
                         with o3:
-                            dch = st.date_input("Data Chegada", value=None, format="DD/MM/YYYY")
-                            av  = st.selectbox("Avaria?", ["Não", "Sim"])
-
-                        opc = st.text_input("Opcionais")
-                        obs = st.text_area("Obs. Avaria", height=60)
-
+                            av     = st.selectbox("Avaria?", ["Não", "Sim"])
+                            obs    = st.text_area("Obs. Avaria", height=68)
+ 
+                        # ── Datas e Entrega ──────────────────────────
+                        st.markdown("**📅 Datas e Entrega**")
+                        d1, d2, d3, d4 = st.columns(4)
+                        with d1:
+                            dch  = st.date_input("Data Chegada", value=None, format="DD/MM/YYYY")
+                        with d2:
+                            det  = st.date_input("Data Entrega", value=None, format="DD/MM/YYYY")
+                        with d3:
+                            hent = st.time_input("Hora Entrega", value=datetime.time(10, 0))
+                        with d4:
+                            entregador = st.text_input("Entregador")
+                        lj = st.selectbox("Loja de Entrega", [""] + GV_LOJAS)
+ 
+                        # ── Financeiro ───────────────────────────────
+                        st.markdown("**💰 Financeiro**")
+                        fn1, fn2, fn3 = st.columns(3)
+                        with fn1: vnf = st.number_input("Valor NF (R$)", min_value=0.0, step=100.0, value=0.0)
+                        with fn2: mgm = st.number_input("Margem (%)",    min_value=0.0, step=0.1,   value=0.0)
+                        with fn3: com = st.number_input("Comissão (%)",  min_value=0.0, step=0.1,   value=0.0)
+ 
                         if st.form_submit_button("💾 Cadastrar", use_container_width=True, type="primary"):
-                            if not fab or not mod or not chassi:
-                                st.error("Fabricante, Modelo e Chassi são obrigatórios.")
+                            if not mod or not chassi:
+                                st.error("Modelo e Chassi são obrigatórios.")
                             elif "chassi" in df_gv.columns and chassi.upper() in df_gv["chassi"].astype(str).str.upper().values:
                                 st.error("Chassi já existe!")
                             else:
@@ -994,18 +1022,25 @@ def render():
                                 nl  = [
                                     gv_novo_id(), fab, mod, chassi, placa, cor,
                                     anof, anom, comb, opc,
-                                    loc, consc, clic, "", stc, localc,
+                                    loc, consc, clic, pedido, stc, localc,
                                     dch.strftime("%d/%m/%Y") if dch else "",
-                                    "", "", "", av, obs if av == "Sim" else "",
-                                    "", "", "", "", agr, agr, "Sistema",
+                                    det.strftime("%d/%m/%Y") if det else "",
+                                    hent.strftime("%H:%M"),
+                                    entregador,
+                                    av, obs if av == "Sim" else "",
+                                    lj, vnf, mgm, com,
+                                    agr, agr,
+                                    st.session_state.get("auth_nome", "Sistema"),
+                                    "",  # transporte_solicitado
                                 ]
                                 pg = st.progress(0, "Salvando..."); pg.progress(70, "Enviando...")
-                                if gv_enviar({"aba":"veiculos","acao":"inserir","linha":nl}):
+                                if gv_enviar({"aba": "veiculos", "acao": "inserir", "linha": nl}):
                                     pg.progress(100, "Concluído!")
                                     gv_carregar.clear()
                                     st.success("✅ Veículo cadastrado!")
                                     st.session_state["gv_cad_open"] = False
                                     st.rerun()
+ 
 
                 # ── Importar Excel ────────────────────────
                 else:
@@ -1020,12 +1055,8 @@ def render():
                             "LOCAL ATUAL","DATA CHEGADA","COM AVARIA?","OBS AVARIA",
                         ]
                         ws.append(cabecalho)
-                        ws.append([
-                            "VOLKSWAGEN","T-Cross 1.4 TSI","9BWBJ6BF3T4099541","QSX4E83",
-                            "Azul Norway - Metálica","2025","2025","Flex","",
-                            "LM FROTAS","Marine","MULTIAGUA INDUSTRIAL","12345",
-                            "Livre","LOJA ALPHAVILLE","15/04/2025","Não","",
-                        ])
+                        ws.append(
+                        )
                         for cell in ws[1]:
                             cell.font      = Font(bold=True, color="FFFFFF")
                             cell.fill      = PatternFill("solid", fgColor="213144")
