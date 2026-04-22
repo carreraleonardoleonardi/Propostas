@@ -1043,20 +1043,30 @@ def render():
  
 
                 # ── Importar Excel ────────────────────────
+               # ── Importar Excel ────────────────────────
                 else:
+                    # Colunas completas (todos os 30 campos da base)
+                    CABECALHO_XLS = [
+                        "FABRICANTE","MODELO","CHASSI","PLACA","COR",
+                        "ANO FABRICACAO","ANO MODELO","COMBUSTIVEL","OPCIONAIS",
+                        "LOCADORA","CONSULTOR","CLIENTE","PEDIDO","STATUS",
+                        "LOCAL ATUAL","DATA CHEGADA","DATA ENTREGA","HORA ENTREGA",
+                        "ENTREGADOR","AVARIA","OBS AVARIA","LOJA ENTREGA",
+                        "VALOR NF","MARGEM","COMISSAO",
+                    ]
                     try:
                         import openpyxl
                         from openpyxl.styles import Font, PatternFill, Alignment
                         wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Importação"
-                        cabecalho = [
-                            "FABRICANTE","MODELO","CHASSI","PLACA","COR",
-                            "ANO FABRICACAO","ANO MODELO","COMBUSTIVEL","OPCIONAIS",
-                            "LOCADORA","CONSULTOR","CLIENTE","PEDIDO","STATUS",
-                            "LOCAL ATUAL","DATA CHEGADA","COM AVARIA?","OBS AVARIA",
-                        ]
-                        ws.append(cabecalho)
-                        ws.append(
-                        )
+                        ws.append(CABECALHO_XLS)
+                        ws.append([
+                            "Volkswagen","T-Cross 1.0 200 TSI","9BWBH6BF3T4069466","QSY8H49",
+                            "Cinza Platinum - Metálico","2025","2025","Flex","",
+                            "LM FROTAS","Marine","Cliente Exemplo","12345","Trânsito Livre",
+                            "LOJA ALPHAVILLE","17/04/2025","17/04/2025","10:00",
+                            "Gabriel","Não","","LOJA ALPHAVILLE",
+                            "","","",
+                        ])
                         for cell in ws[1]:
                             cell.font      = Font(bold=True, color="FFFFFF")
                             cell.fill      = PatternFill("solid", fgColor="213144")
@@ -1071,7 +1081,7 @@ def render():
                             use_container_width=True, key="gv_mod_dl",
                         )
                     except Exception as ex:
-                        st.info("Colunas: FABRICANTE · MODELO · CHASSI · PLACA · COR · LOCADORA · STATUS · DATA CHEGADA · COM AVARIA? · LOCAL ATUAL")
+                        st.info(f"Erro ao gerar modelo: {ex}")
 
                     arq = st.file_uploader("Selecione o .xlsx", type=["xlsx"], key="gv_up")
                     if arq:
@@ -1081,6 +1091,7 @@ def render():
                             if st.button("📤 Importar", use_container_width=True, key="gv_imp", type="primary"):
                                 agr = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
                                 cex = set(df_gv["chassi"].astype(str).str.upper()) if "chassi" in df_gv.columns else set()
+                                # Mapeamento completo de todos os campos
                                 col_map = {
                                     "FABRICANTE":     ["FABRICANTE","fabricante","Fabricante"],
                                     "MODELO":         ["MODELO","modelo","Modelo"],
@@ -1098,8 +1109,15 @@ def render():
                                     "STATUS":         ["STATUS","status","Status"],
                                     "LOCAL ATUAL":    ["LOCAL ATUAL","LOCAL_ATUAL","local_atual","Local Atual"],
                                     "DATA CHEGADA":   ["DATA CHEGADA","DATA_CHEGADA","data_chegada","Data Chegada"],
-                                    "COM AVARIA?":    ["COM AVARIA?","COM AVARIA","avaria","Avaria"],
+                                    "DATA ENTREGA":   ["DATA ENTREGA","DATA_ENTREGA","data_entrega","Data Entrega"],
+                                    "HORA ENTREGA":   ["HORA ENTREGA","HORA_ENTREGA","hora_entrega","Hora Entrega"],
+                                    "ENTREGADOR":     ["ENTREGADOR","entregador","Entregador"],
+                                    "AVARIA":         ["AVARIA","avaria","COM AVARIA?","COM AVARIA"],
                                     "OBS AVARIA":     ["OBS AVARIA","OBS_AVARIA","obs_avaria","Obs Avaria","Obs. Avaria"],
+                                    "LOJA ENTREGA":   ["LOJA ENTREGA","LOJA_ENTREGA","loja_entrega","Loja Entrega","LOJA DE ENTREGA"],
+                                    "VALOR NF":       ["VALOR NF","VALOR_NF","valor_nf","Valor NF","Valor Nota"],
+                                    "MARGEM":         ["MARGEM","margem","Margem"],
+                                    "COMISSAO":       ["COMISSAO","COMISSÃO","comissao","comissão","Comissão"],
                                 }
                                 errs = 0; dps = []
                                 pg2 = st.progress(0, "Importando...")
@@ -1114,17 +1132,40 @@ def render():
                                     ci = g("CHASSI").upper()
                                     if ci and ci in cex: dps.append(ci); continue
                                     if ci: cex.add(ci)
-                                    av_val = g("COM AVARIA?") or "Não"
-                                    av_val = "Sim" if av_val.lower() in ("sim","yes","1","true") else "Não"
+                                    av_raw = g("AVARIA") or "Não"
+                                    av_val = "Sim" if av_raw.lower() in ("sim","yes","1","true") else "Não"
+                                    # Monta nl com todos os 30 campos na ordem exata de GV_COLUNAS
                                     nl = [
-                                        gv_novo_id(), g("FABRICANTE"), g("MODELO"), ci,
-                                        g("PLACA"), g("COR"), g("ANO FABRICACAO"), g("ANO MODELO"),
-                                        g("COMBUSTIVEL"), g("OPCIONAIS"), g("LOCADORA"),
-                                        g("CONSULTOR"), g("CLIENTE"), g("PEDIDO"),
-                                        g("STATUS") or "Trânsito Livre", g("LOCAL ATUAL"),
-                                        g("DATA CHEGADA"), "", "", "",
-                                        av_val, g("OBS AVARIA"), "", "", "", "",
-                                        agr, agr, "Importação",
+                                        gv_novo_id(),       # id
+                                        g("FABRICANTE"),    # fabricante
+                                        g("MODELO"),        # modelo
+                                        ci,                 # chassi
+                                        g("PLACA"),         # placa
+                                        g("COR"),           # cor
+                                        g("ANO FABRICACAO"),# ano_fabricacao
+                                        g("ANO MODELO"),    # ano_modelo
+                                        g("COMBUSTIVEL"),   # combustivel
+                                        g("OPCIONAIS"),     # opcionais
+                                        g("LOCADORA"),      # locadora
+                                        g("CONSULTOR"),     # consultor
+                                        g("CLIENTE"),       # cliente
+                                        g("PEDIDO"),        # pedido
+                                        g("STATUS") or "Trânsito Livre",  # status
+                                        g("LOCAL ATUAL"),   # local_atual
+                                        g("DATA CHEGADA"),  # data_chegada
+                                        g("DATA ENTREGA"),  # data_entrega
+                                        g("HORA ENTREGA"),  # hora_entrega
+                                        g("ENTREGADOR"),    # entregador
+                                        av_val,             # avaria
+                                        g("OBS AVARIA") if av_val=="Sim" else "",  # obs_avaria
+                                        g("LOJA ENTREGA"),  # loja_entrega
+                                        g("VALOR NF"),      # valor_nf
+                                        g("MARGEM"),        # margem
+                                        g("COMISSAO"),      # comissao
+                                        agr,                # criado_em
+                                        agr,                # atualizado_em
+                                        "Importação",       # atualizado_por
+                                        "",                 # transporte_solicitado
                                     ]
                                     if not gv_enviar({"aba":"veiculos","acao":"inserir","linha":nl}):
                                         errs += 1
@@ -1132,11 +1173,11 @@ def render():
                                 gv_carregar.clear()
                                 st.success(f"✅ {len(di)-errs-len(dps)} importado(s)!")
                                 if dps: st.warning(f"Duplicados ignorados: {', '.join(dps)}")
+                                if errs: st.error(f"Erros ao enviar: {errs}")
                                 st.session_state["gv_cad_open"] = False
                                 st.rerun()
                         except Exception as e:
                             st.error(f"Erro ao ler arquivo: {e}")
-            st.divider()
 
         # ══════════════════════════════════════════════════════
         # LISTA DE CARDS
