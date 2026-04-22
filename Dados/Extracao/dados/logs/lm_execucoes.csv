@@ -1,0 +1,5 @@
+﻿datahora,evento,detalhe,quantidade
+2026-04-07 08:23:34,inicio_execucao,,
+2026-04-07 09:05:29,snapshot_salvo,lm_snapshot_2026-04-07_090529.parquet,21755.0
+2026-04-07 09:05:29,historico_inicializado,primeira_carga,21755.0
+2026-04-07 09:05:29,fim_execucao,sucesso,21755.0
