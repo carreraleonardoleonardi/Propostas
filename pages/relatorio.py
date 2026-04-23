@@ -1,751 +1,1230 @@
-# -*- coding: utf-8 -*-
 """
-pages/relatorio.py
-Relatório principal baseado na extração LM gerada em Dados/base_pedidos.parquet
-ou Dados/base_pedidos.xlsx
+relatorio.py — Carrera Signature
+Relatório consolidado local: LM + Salesforce + Cadastro Manual
 """
 
-from __future__ import annotations
-
-import calendar
-from io import BytesIO
-from pathlib import Path
+import io
+import os
+import sys
+import datetime
+import subprocess
+from datetime import date
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
-# =========================================================
-# CONFIG VISUAL
-# =========================================================
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONFIG
+# ══════════════════════════════════════════════════════════════════════════════
+DADOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Dados")
+sys.path.insert(0, DADOS_DIR)
+
 AZUL = "#213144"
-DOURADO = "#C9A84C"
-AZUL_CLARO = "#2E4A6A"
-VERDE = "#22c55e"
-VERMELHO = "#ef4444"
-AMARELO_PLOT = "gold"
-AZUL_PLOT = "#4A90D9"
-VERDE_PLOT = "#2ecc71"
+DOURADO = "#b57b3f"
+VERDE = "#16a34a"
+ROXO = "#7c3aed"
+LARANJA = "#ea580c"
+CINZA_TEXTO = "#64748b"
+BORDA = "#e8dccb"
+FUNDO_CARD = "#ffffff"
 
-FASES_ENTREGUE = {
-    "entregue",
-    "pedido concluído",
-    "pedido concluido",
-    "concluído",
-    "concluido",
-}
+ARQ_BASE_PRINCIPAL_XLSX = os.path.join(DADOS_DIR, "base_consolidada_completa.xlsx")
+ARQ_BASE_PRINCIPAL_PARQUET = os.path.join(DADOS_DIR, "base_consolidada_completa.parquet")
+ARQ_SALESFORCE = os.path.join(DADOS_DIR, "Base Salesforce.xlsx")
+ARQ_MANUAIS = os.path.join(DADOS_DIR, "pedidos_manuais.xlsx")
+ARQ_COCKPIT = os.path.join(DADOS_DIR, "Cockpit_Carrera.xlsx")
 
-STATUS_ASSINADOS = {
-    "assinado",
-    "signed",
-}
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-DADOS_DIR = BASE_DIR / "Dados"
-
-ARQ_PEDIDOS_PARQUET = DADOS_DIR / "base_pedidos.parquet"
-ARQ_PEDIDOS_EXCEL = DADOS_DIR / "base_pedidos.xlsx"
-ARQ_SF = DADOS_DIR / "tbSalesforce.xlsx"
-ARQ_COLAB = DADOS_DIR / "tbColaboradores.xlsx"
-ARQ_SEG = DADOS_DIR / "tbSegmentos.xlsx"
-
-CSS = f"""
-<style>
-.block-container {{
-    padding-top: 1.2rem;
-}}
-h1, h2, h3 {{
-    color: {AZUL};
-}}
-.kpi-card {{
-    background: white;
-    border: 1px solid #e8edf3;
-    border-radius: 16px;
-    padding: 16px 18px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
-}}
-.kpi-title {{
-    color: #6b7280;
-    font-size: 0.92rem;
-    margin-bottom: 4px;
-}}
-.kpi-value {{
-    color: {AZUL};
-    font-size: 1.8rem;
-    font-weight: 700;
-}}
-.kpi-sub {{
-    color: #6b7280;
-    font-size: 0.86rem;
-}}
-hr {{
-    margin-top: 1rem;
-    margin-bottom: 1rem;
-}}
-</style>
-"""
+COLUNAS_RELATORIO = [
+    "Origem venda", "Pedido", "Segmento", "Tipo", "Nome", "Documento",
+    "Data de Inclusão", "Data de Status", "dateLastUpdated", "Mensalidade",
+    "Valor Total", "Status", "ANO DA VENDA", "MÊS DA VENDA", "Prospecção",
+    "Venda", "Previsão", "Data da retirada", "Vigência Final do contrato",
+    "Chassi", "Placa", "Período", "Km", "Modelo Oficial", "Cor", "Opcional",
+    "Local de Venda", "UF", "City", "KickBack", "Preço NF",
+    "Comissão Vendedor R$", "Comissão Carrera", "Marca", "Locadora",
+    "Empresa", "Data Assinatura"
+]
 
 
-# =========================================================
+# ══════════════════════════════════════════════════════════════════════════════
 # HELPERS
-# =========================================================
-def _brl(v) -> str:
-    try:
-        return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except Exception:
-        return "R$ 0,00"
+# ══════════════════════════════════════════════════════════════════════════════
+def _tipo_cliente(doc: str) -> str:
+    digits = "".join(filter(str.isdigit, str(doc)))
+    if len(digits) == 11:
+        return "PF"
+    if len(digits) == 14:
+        return "PJ"
+    return ""
 
 
-def _num(v) -> float:
-    if pd.isna(v):
-        return 0.0
-    if isinstance(v, (int, float)):
-        return float(v)
-
-    s = str(v).strip().replace("R$", "").replace(" ", "")
-    s = s.replace(".", "").replace(",", ".")
-    try:
-        return float(s)
-    except Exception:
-        return 0.0
-
-
-def _texto(v) -> str:
-    if pd.isna(v) or v is None:
-        return ""
-    return str(v).strip()
-
-
-def _normalizar_colunas(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-    df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
-
-
-def _padronizar_datas(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    df = df.copy()
-    for c in cols:
-        if c in df.columns:
-            df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
-    return df
-
-
-def _render_kpi(col, titulo: str, valor: str, subtitulo: str = "") -> None:
-    col.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-title">{titulo}</div>
-            <div class="kpi-value">{valor}</div>
-            <div class="kpi-sub">{subtitulo}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+def _to_num_serie(series: pd.Series) -> pd.Series:
+    if series is None or len(series) == 0:
+        return pd.Series(dtype="float64")
+    return pd.to_numeric(
+        series.astype(str)
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False)
+        .str.replace(r"[^\d\.-]", "", regex=True),
+        errors="coerce"
     )
 
 
-# =========================================================
-# CARGA
-# =========================================================
-@st.cache_data(ttl=300)
-def carregar_pedidos() -> pd.DataFrame:
-    if ARQ_PEDIDOS_PARQUET.exists():
-        df = pd.read_parquet(ARQ_PEDIDOS_PARQUET)
-    elif ARQ_PEDIDOS_EXCEL.exists():
-        df = pd.read_excel(ARQ_PEDIDOS_EXCEL)
+def _to_num_col(df: pd.DataFrame, col: str) -> pd.Series:
+    if col not in df.columns:
+        return pd.Series([None] * len(df), index=df.index, dtype="float64")
+    return _to_num_serie(df[col])
+
+
+def _garantir_colunas(df: pd.DataFrame, colunas: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for col in colunas:
+        if col not in out.columns:
+            out[col] = ""
+    return out
+
+
+def _formatar_datas_para_exibicao(df: pd.DataFrame, colunas: list[str]) -> pd.DataFrame:
+    dv = df.copy()
+    for col in colunas:
+        if col in dv.columns:
+            dv[col] = pd.to_datetime(dv[col], errors="coerce", dayfirst=True).dt.strftime("%d/%m/%Y").fillna("")
+    return dv
+
+
+def _lookup_consultor(df_sf: pd.DataFrame, numero_pedido) -> str:
+    if df_sf.empty:
+        return "Não encontrado"
+
+    col_pedido = "Nro do Pedido"
+    col_consul = "Proprietário da oportunidade"
+
+    if col_pedido not in df_sf.columns or col_consul not in df_sf.columns:
+        return "Não encontrado"
+
+    match = df_sf[df_sf[col_pedido].astype(str).str.strip() == str(numero_pedido).strip()]
+    if match.empty:
+        return "Não encontrado"
+
+    return str(match.iloc[0][col_consul]).strip() or "Não encontrado"
+
+
+def _fmt_brl(valor) -> str:
+    if pd.isna(valor):
+        valor = 0
+    try:
+        return f"R$ {float(valor):,.0f}"
+    except Exception:
+        return "R$ 0"
+
+
+def _primeiro_dia_mes_atual() -> date:
+    hoje = date.today()
+    return date(hoje.year, hoje.month, 1)
+
+
+def _ultimo_dia_mes_atual() -> date:
+    hoje = date.today()
+    if hoje.month == 12:
+        prox = date(hoje.year + 1, 1, 1)
     else:
-        return pd.DataFrame()
-
-    df = _normalizar_colunas(df)
-    df = _padronizar_datas(
-        df,
-        ["data_criacao", "data_assinatura", "data_agendamento", "data_entrega"]
-    )
-
-    if "valor_total" in df.columns:
-        df["valor_total"] = df["valor_total"].apply(_num)
-    if "preco_nf" in df.columns:
-        df["preco_nf"] = df["preco_nf"].apply(_num)
-    if "quantidade_veiculos" in df.columns:
-        df["quantidade_veiculos"] = pd.to_numeric(df["quantidade_veiculos"], errors="coerce").fillna(1)
-
-    return df
+        prox = date(hoje.year, hoje.month + 1, 1)
+    return (pd.Timestamp(prox) - pd.Timedelta(days=1)).date()
 
 
-@st.cache_data(ttl=300)
-def carregar_colaboradores() -> pd.DataFrame:
-    if not ARQ_COLAB.exists():
-        return pd.DataFrame()
-    df = pd.read_excel(ARQ_COLAB)
-    return _normalizar_colunas(df)
+def _coluna_data_filtro(df: pd.DataFrame) -> str | None:
+    if "dateLastUpdated" in df.columns:
+        return "dateLastUpdated"
+    if "Data de Status" in df.columns:
+        return "Data de Status"
+    return None
 
 
-@st.cache_data(ttl=300)
-def carregar_segmentos() -> pd.DataFrame:
-    if not ARQ_SEG.exists():
-        return pd.DataFrame()
-    df = pd.read_excel(ARQ_SEG)
-    return _normalizar_colunas(df)
+def _preparar_exibicao(df: pd.DataFrame) -> pd.DataFrame:
+    dv = df.copy()
 
-
-@st.cache_data(ttl=300)
-def carregar_salesforce() -> pd.DataFrame:
-    if not ARQ_SF.exists():
-        return pd.DataFrame()
-
-    df = pd.read_excel(ARQ_SF)
-    df = _normalizar_colunas(df)
-
-    cols_datas = [
-        "Data Assinatura Contrat",
-        "DataHora Agendamento",
-        "Data agendamento",
+    col_moeda = [
+        "Mensalidade",
+        "Valor Total",
+        "Comissão Carrera",
+        "Comissão Vendedor R$",
+        "KickBack",
+        "Preço NF",
     ]
-    for c in cols_datas:
-        if c in df.columns:
-            df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
+    for col in col_moeda:
+        if col in dv.columns:
+            dv[col] = _to_num_col(dv, col)
 
-    return df
+    col_num = ["Km", "Período", "ANO DA VENDA", "MÊS DA VENDA"]
+    for col in col_num:
+        if col in dv.columns:
+            dv[col] = _to_num_col(dv, col)
+
+    dv = _formatar_datas_para_exibicao(
+        dv,
+        [
+            "Data de Inclusão",
+            "Data de Status",
+            "dateLastUpdated",
+            "Data da retirada",
+            "Vigência Final do contrato",
+            "Data Assinatura",
+        ]
+    )
+
+    ordem = [
+        "Pedido", "Locadora", "Segmento", "Status", "Venda", "Nome", "Documento",
+        "Tipo", "Marca", "Modelo Oficial", "Cor", "Placa", "Chassi",
+        "Mensalidade", "Valor Total", "Preço NF", "Comissão Carrera",
+        "Comissão Vendedor R$", "Período", "Km",
+        "dateLastUpdated", "Data de Inclusão", "Data Assinatura", "Data de Status",
+        "Data da retirada", "Vigência Final do contrato",
+        "Local de Venda", "UF", "City", "Origem venda", "Empresa", "Opcional"
+    ]
+
+    ordem_final = [c for c in ordem if c in dv.columns] + [c for c in dv.columns if c not in ordem]
+    return dv[ordem_final]
 
 
-@st.cache_data(ttl=300)
-def montar_base() -> pd.DataFrame:
-    df = carregar_pedidos()
+def _top_3_carros_podium(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Top 3 carros mais vendidos:
+    - considera apenas Status = Pedido concluído
+    - prioriza Modelo Oficial
+    - usa Marca como fallback
+    """
+    if df.empty:
+        return pd.DataFrame(columns=["modelo", "qtd"])
+
+    base = df.copy()
+
+    if "Status" in base.columns:
+        base = base[
+            base["Status"].astype(str).str.strip().str.lower() == "pedido concluído"
+        ]
+
+    if base.empty:
+        return pd.DataFrame(columns=["modelo", "qtd"])
+
+    if "Modelo Oficial" in base.columns:
+        base["modelo"] = base["Modelo Oficial"].astype(str).str.strip()
+    else:
+        base["modelo"] = ""
+
+    if "Marca" in base.columns:
+        base["modelo"] = base.apply(
+            lambda row: row["modelo"]
+            if str(row["modelo"]).strip() not in ["", "nan", "None"]
+            else str(row.get("Marca", "")).strip(),
+            axis=1,
+        )
+
+    base["modelo"] = base["modelo"].replace(["", "nan", "None"], pd.NA)
+    base = base.dropna(subset=["modelo"])
+
+    if base.empty:
+        return pd.DataFrame(columns=["modelo", "qtd"])
+
+    top3 = (
+        base.groupby("modelo", as_index=False)
+        .size()
+        .rename(columns={"size": "qtd"})
+        .sort_values(["qtd", "modelo"], ascending=[False, True])
+        .head(3)
+        .reset_index(drop=True)
+    )
+
+    return top3
+
+
+def _render_podium_card(posicao: int, modelo: str, qtd: int) -> str:
+    medalha = {1: "👑", 2: "🥈", 3: "🥉"}[posicao]
+    classe = f"podium-{posicao}"
+    return f"""
+        <div class="podium-col {classe}">
+            <div class="podium-badge">{posicao}</div>
+            <div class="podium-box">
+                <div class="podium-model">{medalha}</div>
+                <div class="podium-name">{modelo}</div>
+                <div class="podium-qtd">{qtd}</div>
+                <div class="podium-leg">Pedidos</div>
+            </div>
+        </div>
+    """
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LEITURA LOCAL
+# ══════════════════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=120, show_spinner=False)
+def _ler_salesforce_local() -> pd.DataFrame:
+    if not os.path.exists(ARQ_SALESFORCE):
+        return pd.DataFrame()
+
+    try:
+        return pd.read_excel(ARQ_SALESFORCE)
+    except Exception as e:
+        st.warning(f"⚠️ Não foi possível ler o Salesforce local: {e}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _ler_base_local() -> pd.DataFrame:
+    try:
+        if os.path.exists(ARQ_BASE_PRINCIPAL_PARQUET):
+            return pd.read_parquet(ARQ_BASE_PRINCIPAL_PARQUET)
+
+        if os.path.exists(ARQ_BASE_PRINCIPAL_XLSX):
+            return pd.read_excel(ARQ_BASE_PRINCIPAL_XLSX)
+
+        return pd.DataFrame()
+
+    except Exception as e:
+        st.error(f"Erro ao ler a base consolidada local: {e}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _ler_manuais_local() -> pd.DataFrame:
+    if not os.path.exists(ARQ_MANUAIS):
+        return pd.DataFrame(columns=COLUNAS_RELATORIO)
+
+    try:
+        df = pd.read_excel(ARQ_MANUAIS)
+        return _garantir_colunas(df, COLUNAS_RELATORIO)
+    except Exception as e:
+        st.warning(f"⚠️ Não foi possível ler os pedidos manuais: {e}")
+        return pd.DataFrame(columns=COLUNAS_RELATORIO)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONSOLIDAÇÃO
+# ══════════════════════════════════════════════════════════════════════════════
+def _normalizar_base_principal(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=COLUNAS_RELATORIO)
+
+    base = df.copy()
+
+    mapa = {
+        "orderId": "Pedido",
+        "clientName": "Nome",
+        "cpfCnpj": "Documento",
+        "orderStatus": "Status",
+        "createdAt": "Data de Inclusão",
+        "updatedAt": "Data de Status",
+        "dateLastUpdated": "dateLastUpdated",
+        "totalOrder": "Valor Total",
+        "segment": "Segmento",
+        "optional": "Opcional",
+        "chassis": "Chassi",
+        "deliveryPlate": "Placa",
+        "monthlyInstallment": "Mensalidade",
+        "monthlyKmValue": "Km",
+        "deadline": "Período",
+        "brand": "Marca",
+        "kickback": "KickBack",
+        "vehicleValue": "Preço NF",
+        "comissao": "Comissão Carrera",
+        "comissao_vendedor": "Comissão Vendedor R$",
+        "dealerDelivery": "Local de Venda",
+        "estado": "UF",
+        "city": "City",
+        "orderDate": "Data Assinatura",
+        "deliveryDate": "Data da retirada",
+        "salesChannel": "Origem venda",
+        "clientType": "Tipo",
+        "consultorNome": "Venda",
+    }
+
+    base.rename(columns={k: v for k, v in mapa.items() if k in base.columns}, inplace=True)
+
+    if "Tipo" not in base.columns or base["Tipo"].astype(str).str.strip().eq("").all():
+        if "Documento" in base.columns:
+            base["Tipo"] = base["Documento"].apply(_tipo_cliente)
+
+    for col in ["Data de Inclusão", "Data de Status", "dateLastUpdated", "Data Assinatura", "Data da retirada"]:
+        if col in base.columns:
+            base[col] = pd.to_datetime(base[col], errors="coerce", dayfirst=True)
+
+    if "Data de Inclusão" in base.columns:
+        if "ANO DA VENDA" not in base.columns:
+            base["ANO DA VENDA"] = base["Data de Inclusão"].dt.year.astype("Int64").astype(str).replace("<NA>", "")
+        if "MÊS DA VENDA" not in base.columns:
+            base["MÊS DA VENDA"] = base["Data de Inclusão"].dt.month.astype("Int64").astype(str).replace("<NA>", "")
+
+    if "Vigência Final do contrato" not in base.columns:
+        if "Data Assinatura" in base.columns and "Período" in base.columns:
+            periodo_num = _to_num_col(base, "Período")
+            base["Vigência Final do contrato"] = base.apply(
+                lambda r: (
+                    r["Data Assinatura"] + pd.DateOffset(months=int(periodo_num.loc[r.name]))
+                ) if pd.notnull(r.get("Data Assinatura")) and pd.notnull(periodo_num.loc[r.name]) else None,
+                axis=1,
+            )
+
+    if "Locadora" not in base.columns:
+        base["Locadora"] = "LM FROTAS"
+
+    return _garantir_colunas(base, COLUNAS_RELATORIO)
+
+
+def _enriquecer_com_salesforce(df: pd.DataFrame, df_sf: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
-
-    df = df.copy()
-
-    # -----------------------------------------------------
-    # Colaboradores
-    # -----------------------------------------------------
-    colab = carregar_colaboradores()
-    if not colab.empty and "consultor" in df.columns and "Colaborador" in colab.columns:
-        colunas_colab = [
-            c for c in ["Colaborador", "Frente", "Gerente", "Resultado", "Tipo_Acesso"]
-            if c in colab.columns
-        ]
-        if colunas_colab:
-            df = df.merge(
-                colab[colunas_colab].drop_duplicates("Colaborador"),
-                left_on="consultor",
-                right_on="Colaborador",
-                how="left",
-                suffixes=("", "_colab"),
-            )
-
-    # -----------------------------------------------------
-    # Segmentos
-    # -----------------------------------------------------
-    seg = carregar_segmentos()
-    if not seg.empty and "segmento" in df.columns and "Segmento" in seg.columns:
-        colunas_seg = [c for c in ["Segmento", "Locadora"] if c in seg.columns]
-        if colunas_seg:
-            df = df.merge(
-                seg[colunas_seg].drop_duplicates("Segmento"),
-                left_on="segmento",
-                right_on="Segmento",
-                how="left",
-            )
-
-    # -----------------------------------------------------
-    # Salesforce como apoio
-    # -----------------------------------------------------
-    sf = carregar_salesforce()
-    if not sf.empty and "pedido_id" in df.columns and "Nro do Pedido" in sf.columns:
-        df = df.merge(
-            sf.drop_duplicates("Nro do Pedido"),
-            left_on="pedido_id",
-            right_on="Nro do Pedido",
-            how="left",
-            suffixes=("", "_sf"),
-        )
-
-    # -----------------------------------------------------
-    # Colunas derivadas
-    # -----------------------------------------------------
-    if "status_pedido" in df.columns:
-        df["status_pedido_norm"] = df["status_pedido"].astype(str).str.strip().str.lower()
-    else:
-        df["status_pedido_norm"] = ""
-
-    if "fase" in df.columns:
-        df["fase_norm"] = df["fase"].astype(str).str.strip().str.lower()
-    else:
-        df["fase_norm"] = ""
-
-    if "status_entrega" in df.columns:
-        df["status_entrega_norm"] = df["status_entrega"].astype(str).str.strip().str.lower()
-    else:
-        df["status_entrega_norm"] = ""
-
-    df["assinado_flag"] = (
-        df["status_pedido_norm"].isin(STATUS_ASSINADOS)
-        | df.get("data_assinatura", pd.Series(index=df.index)).notna()
-    )
-
-    df["entregue_flag"] = (
-        df["fase_norm"].isin(FASES_ENTREGUE)
-        | df["status_entrega_norm"].isin(FASES_ENTREGUE)
-        | df.get("data_entrega", pd.Series(index=df.index)).notna()
-    )
-
-    if "quantidade_veiculos" not in df.columns:
-        df["quantidade_veiculos"] = 1
-
-    df["quantidade_veiculos"] = pd.to_numeric(df["quantidade_veiculos"], errors="coerce").fillna(1)
-
-    if "valor_total" not in df.columns:
-        df["valor_total"] = 0.0
-
-    if "preco_nf" not in df.columns:
-        df["preco_nf"] = 0.0
-
-    # Data principal para análises
-    if "data_assinatura" in df.columns:
-        df["data_referencia"] = df["data_assinatura"]
-    else:
-        df["data_referencia"] = pd.NaT
-
-    if "data_criacao" in df.columns:
-        sem_assinatura = df["data_referencia"].isna()
-        df.loc[sem_assinatura, "data_referencia"] = df.loc[sem_assinatura, "data_criacao"]
-
-    return df
-
-
-# =========================================================
-# FILTROS
-# =========================================================
-def aplicar_filtros(df: pd.DataFrame) -> pd.DataFrame:
-    st.sidebar.markdown("## Filtros")
-
-    if "data_referencia" in df.columns and df["data_referencia"].notna().any():
-        data_min = df["data_referencia"].min()
-        data_max = df["data_referencia"].max()
-        periodo_padrao = (
-            data_min.date(),
-            data_max.date(),
-        )
-    else:
-        hoje = pd.Timestamp.today().date()
-        periodo_padrao = (hoje, hoje)
-
-    periodo = st.sidebar.date_input("Período", value=periodo_padrao)
-
-    frente_opts = sorted([x for x in df.get("Frente", pd.Series(dtype=str)).dropna().astype(str).unique() if x.strip()])
-    gerente_opts = sorted([x for x in df.get("Gerente", pd.Series(dtype=str)).dropna().astype(str).unique() if x.strip()])
-    consultor_opts = sorted([x for x in df.get("consultor", pd.Series(dtype=str)).dropna().astype(str).unique() if x.strip()])
-    segmento_opts = sorted([x for x in df.get("segmento", pd.Series(dtype=str)).dropna().astype(str).unique() if x.strip()])
-    fornecedor_opts = sorted([x for x in df.get("fornecedor", pd.Series(dtype=str)).dropna().astype(str).unique() if x.strip()])
-    locadora_opts = sorted([x for x in df.get("Locadora", pd.Series(dtype=str)).dropna().astype(str).unique() if x.strip()])
-    dealer_opts = sorted([x for x in df.get("dealer", pd.Series(dtype=str)).dropna().astype(str).unique() if x.strip()])
-
-    frentes = st.sidebar.multiselect("Frente", frente_opts)
-    gerentes = st.sidebar.multiselect("Gerente", gerente_opts)
-    consultores = st.sidebar.multiselect("Consultor", consultor_opts)
-    segmentos = st.sidebar.multiselect("Segmento", segmento_opts)
-    fornecedores = st.sidebar.multiselect("Fornecedor", fornecedor_opts)
-    locadoras = st.sidebar.multiselect("Locadora", locadora_opts)
-    dealers = st.sidebar.multiselect("Dealer", dealer_opts)
 
     out = df.copy()
 
-    if isinstance(periodo, tuple) and len(periodo) == 2 and "data_referencia" in out.columns:
-        ini = pd.to_datetime(periodo[0])
-        fim = pd.to_datetime(periodo[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-        out = out[(out["data_referencia"] >= ini) & (out["data_referencia"] <= fim)]
+    if df_sf.empty or "Nro do Pedido" not in df_sf.columns:
+        if "Venda" not in out.columns:
+            out["Venda"] = ""
+        return out
 
-    if frentes and "Frente" in out.columns:
-        out = out[out["Frente"].astype(str).isin(frentes)]
+    sf_idx = df_sf.copy()
+    sf_idx["_pedido_idx"] = df_sf["Nro do Pedido"].astype(str).str.strip()
+    sf_idx = sf_idx.drop_duplicates(subset=["_pedido_idx"]).set_index("_pedido_idx")
 
-    if gerentes and "Gerente" in out.columns:
-        out = out[out["Gerente"].astype(str).isin(gerentes)]
+    if "Venda" not in out.columns:
+        out["Venda"] = out["Pedido"].apply(lambda p: _lookup_consultor(df_sf, p))
+    else:
+        out["Venda"] = out.apply(
+            lambda row: row["Venda"] if str(row.get("Venda", "")).strip()
+            else _lookup_consultor(df_sf, row.get("Pedido", "")),
+            axis=1,
+        )
 
-    if consultores and "consultor" in out.columns:
-        out = out[out["consultor"].astype(str).isin(consultores)]
+    sf_map = {
+        "Nome da conta": "Empresa",
+        "Origem da venda": "Origem venda",
+        "Comissionamento": "Comissão Vendedor R$",
+    }
 
-    if segmentos and "segmento" in out.columns:
-        out = out[out["segmento"].astype(str).isin(segmentos)]
-
-    if fornecedores and "fornecedor" in out.columns:
-        out = out[out["fornecedor"].astype(str).isin(fornecedores)]
-
-    if locadoras and "Locadora" in out.columns:
-        out = out[out["Locadora"].astype(str).isin(locadoras)]
-
-    if dealers and "dealer" in out.columns:
-        out = out[out["dealer"].astype(str).isin(dealers)]
+    for col_sf, col_rel in sf_map.items():
+        if col_sf in sf_idx.columns:
+            out[col_rel] = out.apply(
+                lambda row: (
+                    sf_idx.loc[str(row["Pedido"]).strip(), col_sf]
+                    if str(row["Pedido"]).strip() in sf_idx.index
+                    else row.get(col_rel, "")
+                ),
+                axis=1,
+            )
 
     return out
 
 
-# =========================================================
-# KPIS
-# =========================================================
-def render_kpis(df: pd.DataFrame) -> None:
-    contratos_assinados = int(df["assinado_flag"].sum()) if "assinado_flag" in df.columns else 0
-    carros_assinados = int(df.loc[df["assinado_flag"], "quantidade_veiculos"].sum()) if "assinado_flag" in df.columns else 0
-    carros_entregues = int(df.loc[df["entregue_flag"], "quantidade_veiculos"].sum()) if "entregue_flag" in df.columns else 0
+def _base_completa_local() -> pd.DataFrame:
+    df_base = _ler_base_local()
+    df_sf = _ler_salesforce_local()
+    df_manual = _ler_manuais_local()
 
-    previsao_entrega = 0
-    if "data_agendamento" in df.columns and "entregue_flag" in df.columns:
-        previsao_entrega = int(
-            df.loc[
-                df["data_agendamento"].notna() & (~df["entregue_flag"]),
-                "quantidade_veiculos"
-            ].sum()
-        )
+    partes = []
 
-    ticket_medio = df.loc[df["valor_total"] > 0, "valor_total"].mean() if "valor_total" in df.columns else 0
+    if not df_base.empty:
+        partes.append(_normalizar_base_principal(df_base))
 
-    top_vendedor = "—"
-    if "consultor" in df.columns and "quantidade_veiculos" in df.columns and not df.empty:
-        ranking = (
-            df.groupby("consultor", dropna=False)["quantidade_veiculos"]
-            .sum()
-            .sort_values(ascending=False)
-        )
-        if not ranking.empty:
-            top_vendedor = str(ranking.index[0])
+    if not df_manual.empty:
+        partes.append(_garantir_colunas(df_manual, COLUNAS_RELATORIO))
 
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    _render_kpi(c1, "Contratos Assinados", f"{contratos_assinados}")
-    _render_kpi(c2, "Carros Assinados", f"{carros_assinados}")
-    _render_kpi(c3, "Previsão de Entrega", f"{previsao_entrega}")
-    _render_kpi(c4, "Carros Entregues", f"{carros_entregues}")
-    _render_kpi(c5, "Ticket Médio", _brl(ticket_medio))
-    _render_kpi(c6, "Top Vendedor", top_vendedor)
+    if not partes:
+        return pd.DataFrame(columns=COLUNAS_RELATORIO)
+
+    df = pd.concat(partes, ignore_index=True)
+    df = _garantir_colunas(df, COLUNAS_RELATORIO)
+    df = _enriquecer_com_salesforce(df, df_sf)
+
+    return df[COLUNAS_RELATORIO]
 
 
-# =========================================================
-# CURVA
-# =========================================================
-def render_curva_mensal(df: pd.DataFrame) -> None:
-    st.subheader("Curva de Performance")
-
-    if "data_referencia" not in df.columns:
-        st.info("Sem dados suficientes para exibir a curva.")
-        return
-
-    base = df.copy()
-    base = base[base["data_referencia"].notna()]
-
-    if base.empty:
-        st.info("Sem dados suficientes para exibir a curva.")
-        return
-
-    base["_ano"] = base["data_referencia"].dt.year
-    base["_mes"] = base["data_referencia"].dt.month
-    base["_dia"] = base["data_referencia"].dt.day
-
-    diario = (
-        base.groupby(["_ano", "_mes", "_dia"], as_index=False)["quantidade_veiculos"]
-        .sum()
-        .rename(columns={"quantidade_veiculos": "carros"})
-    )
-
-    hoje = pd.Timestamp.today()
-    ano_atual = hoje.year
-    mes_atual = hoje.month
-
-    if mes_atual == 1:
-        ano_passado = ano_atual - 1
-        mes_passado = 12
-    else:
-        ano_passado = ano_atual
-        mes_passado = mes_atual - 1
-
-    mensal = (
-        base.groupby(["_ano", "_mes"], as_index=False)["quantidade_veiculos"]
-        .sum()
-        .rename(columns={"quantidade_veiculos": "carros"})
-    )
-
-    melhor = mensal.sort_values("carros", ascending=False).head(1)
-    if melhor.empty:
-        melhor_ano, melhor_mes = ano_atual, mes_atual
-    else:
-        melhor_ano = int(melhor.iloc[0]["_ano"])
-        melhor_mes = int(melhor.iloc[0]["_mes"])
-
-    def curva(ano: int, mes: int) -> pd.DataFrame:
-        sub = diario[(diario["_ano"] == ano) & (diario["_mes"] == mes)][["_dia", "carros"]].copy()
-        ultimo_dia = calendar.monthrange(ano, mes)[1]
-        dias = pd.DataFrame({"_dia": range(1, ultimo_dia + 1)})
-        sub = dias.merge(sub, on="_dia", how="left")
-        sub["carros"] = sub["carros"].fillna(0).cumsum()
-        return sub
-
-    df_atual = curva(ano_atual, mes_atual)
-    df_passado = curva(ano_passado, mes_passado)
-    df_melhor = curva(melhor_ano, melhor_mes)
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df_passado["_dia"], y=df_passado["carros"],
-        mode="lines", name="Mês passado",
-        line=dict(color=AZUL_PLOT, width=3)
-    ))
-    fig.add_trace(go.Scatter(
-        x=df_melhor["_dia"], y=df_melhor["carros"],
-        mode="lines", name="Melhor mês",
-        line=dict(color=VERDE_PLOT, width=3)
-    ))
-    fig.add_trace(go.Scatter(
-        x=df_atual["_dia"], y=df_atual["carros"],
-        mode="lines", name="Mês atual",
-        line=dict(color=AMARELO_PLOT, width=3)
-    ))
-
-    fig.update_layout(
-        height=420,
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        margin=dict(l=20, r=20, t=20, b=20),
-        xaxis_title="Dia do mês",
-        yaxis_title="Carros acumulados",
-        legend_title="Séries",
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-
-# =========================================================
-# GRÁFICOS
-# =========================================================
-def render_graficos(df: pd.DataFrame) -> None:
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.subheader("Evolução mensal de carros assinados")
-        if "data_referencia" not in df.columns:
-            st.info("Sem dados.")
+# ══════════════════════════════════════════════════════════════════════════════
+# MANUAIS
+# ══════════════════════════════════════════════════════════════════════════════
+def _gravar_manual_local(dados: dict) -> bool:
+    try:
+        if os.path.exists(ARQ_MANUAIS):
+            df = pd.read_excel(ARQ_MANUAIS)
         else:
-            base = df[df["data_referencia"].notna()].copy()
+            df = pd.DataFrame(columns=COLUNAS_RELATORIO)
 
-            if base.empty:
-                st.info("Sem dados.")
+        df = _garantir_colunas(df, COLUNAS_RELATORIO)
+
+        nova_linha = {c: str(dados.get(c, "")) for c in COLUNAS_RELATORIO}
+        df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+        df.to_excel(ARQ_MANUAIS, index=False)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao gravar pedido manual: {e}")
+        return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UI
+# ══════════════════════════════════════════════════════════════════════════════
+def render():
+    autenticado = st.session_state.get("auth_tipo", "") == "Staff"
+    pode_editar = autenticado and st.session_state.get("auth_nome", "") not in {
+        "Andrea Bettega Pereira da Costa",
+        "Raymond Jose Duque Bello",
+    }
+
+    st.markdown(
+        f"""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
+
+        html, body, [class*="css"] {{
+            font-family: 'Montserrat', sans-serif !important;
+        }}
+
+        section[data-testid="stMain"] * {{
+            font-family: 'Montserrat', sans-serif !important;
+        }}
+
+        .page-title {{
+            font-size: 28px;
+            font-weight: 800;
+            color: {AZUL};
+            margin: 0;
+            padding: 0;
+        }}
+
+        .section-title {{
+            font-size: 16px;
+            font-weight: 800;
+            color: {AZUL};
+            margin: 0 0 12px 0;
+        }}
+
+        .soft-card {{
+            background: {FUNDO_CARD};
+            border: 1px solid {BORDA};
+            border-radius: 18px;
+            padding: 18px 16px 12px 16px;
+            box-shadow: 0 4px 18px rgba(33,49,68,.05);
+            margin-bottom: 18px;
+        }}
+
+        .kpi-wrap {{
+            display: grid;
+            grid-template-columns: repeat(6, minmax(120px, 1fr));
+            gap: 12px;
+            margin: 18px 0 12px 0;
+        }}
+
+        .kpi-box {{
+            background: #fff;
+            border: 1px solid {BORDA};
+            border-top: 4px solid {DOURADO};
+            border-radius: 18px;
+            padding: 18px 12px 14px 12px;
+            text-align: center;
+            box-shadow: 0 4px 18px rgba(181,123,63,.06);
+        }}
+
+        .kpi-n {{
+            font-size: 24px;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 6px;
+            word-break: break-word;
+        }}
+
+        .kpi-l {{
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .7px;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }}
+
+        .mini-note {{
+            color: {CINZA_TEXTO};
+            font-size: 13px;
+            margin: 6px 0 16px 0;
+        }}
+
+        .podium-card {{
+            background: #fff;
+            border: 1px solid {BORDA};
+            border-radius: 18px;
+            padding: 18px;
+            box-shadow: 0 4px 18px rgba(33,49,68,.05);
+            height: 100%;
+            margin-bottom: 18px;
+        }}
+
+        .podium-wrap {{
+            display: flex;
+            align-items: end;
+            justify-content: center;
+            gap: 16px;
+            margin-top: 18px;
+            min-height: 320px;
+        }}
+
+        .podium-col {{
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: end;
+            flex-direction: column;
+            max-width: 320px;
+        }}
+
+        .podium-badge {{
+            width: 44px;
+            height: 44px;
+            border-radius: 999px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 22px;
+            margin-bottom: 10px;
+            border: 3px solid #fff;
+            box-shadow: 0 4px 12px rgba(0,0,0,.08);
+        }}
+
+        .podium-box {{
+            width: 100%;
+            border-radius: 18px 18px 10px 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 18px 12px;
+            text-align: center;
+            border: 1px solid {BORDA};
+        }}
+
+        .podium-model {{
+            font-size: 26px;
+            margin-bottom: 8px;
+        }}
+
+        .podium-name {{
+            font-size: 24px;
+            font-weight: 800;
+            color: {AZUL};
+            line-height: 1.1;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            word-break: break-word;
+        }}
+
+        .podium-qtd {{
+            font-size: 42px;
+            font-weight: 800;
+            color: {AZUL};
+            line-height: 1;
+        }}
+
+        .podium-leg {{
+            font-size: 12px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: .6px;
+            margin-top: 6px;
+        }}
+
+        .podium-1 .podium-badge {{
+            background: linear-gradient(180deg, #f6d36b, #d89b22);
+            color: white;
+        }}
+
+        .podium-2 .podium-badge {{
+            background: linear-gradient(180deg, #cfd5df, #8b95a7);
+            color: white;
+        }}
+
+        .podium-3 .podium-badge {{
+            background: linear-gradient(180deg, #efb083, #c96a27);
+            color: white;
+        }}
+
+        .podium-1 .podium-box {{
+            background: linear-gradient(180deg, #fff8ea, #f5e3b6);
+            min-height: 230px;
+        }}
+
+        .podium-2 .podium-box {{
+            background: linear-gradient(180deg, #f5f7fb, #dfe5ef);
+            min-height: 180px;
+        }}
+
+        .podium-3 .podium-box {{
+            background: linear-gradient(180deg, #fbf2eb, #efd7c8);
+            min-height: 150px;
+        }}
+
+        .podium-note {{
+            font-size: 13px;
+            color: {CINZA_TEXTO};
+            margin-top: 14px;
+        }}
+
+        div[data-testid="stSelectbox"] label,
+        div[data-testid="stTextInput"] label,
+        div[data-testid="stDateInput"] label,
+        div[data-testid="stNumberInput"] label {{
+            color: {AZUL} !important;
+            font-weight: 700 !important;
+            font-size: 13px !important;
+        }}
+
+        div[data-testid="stSelectbox"] > div,
+        div[data-testid="stTextInput"] > div,
+        div[data-testid="stDateInput"] > div,
+        div[data-testid="stNumberInput"] > div {{
+            border-radius: 14px !important;
+        }}
+
+        div[data-testid="stButton"] button {{
+            border-radius: 14px !important;
+            height: 44px !important;
+            font-weight: 700 !important;
+        }}
+
+        div[data-testid="stDataFrame"] {{
+            border: 1px solid {BORDA};
+            border-radius: 16px;
+            overflow: hidden;
+        }}
+
+        @media (max-width: 1100px) {{
+            .kpi-wrap {{
+                grid-template-columns: repeat(2, minmax(120px, 1fr));
+            }}
+        }}
+
+        @media (max-width: 900px) {{
+            .podium-wrap {{
+                flex-direction: column;
+                align-items: center;
+                min-height: auto;
+            }}
+
+            .podium-box {{
+                min-height: 140px !important;
+            }}
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    abas = st.tabs(["📋 Relatório", "📤 Dados", "➕ Cadastro Manual"] if pode_editar else ["📋 Relatório"])
+
+    # ──────────────────────────────────────────────────────────────────────
+    # ABA RELATÓRIO
+    # ──────────────────────────────────────────────────────────────────────
+    with abas[0]:
+        h1, h2 = st.columns([6, 1.2])
+        with h1:
+            st.markdown(f'<p class="page-title">📊 Relatório Consolidado</p>', unsafe_allow_html=True)
+        with h2:
+            if st.button("🔄 Atualizar", use_container_width=True, key="rel_refresh"):
+                st.cache_data.clear()
+                st.rerun()
+
+        with st.spinner("Carregando base local..."):
+            df = _base_completa_local()
+
+        if df.empty:
+            st.info("Nenhum dado disponível. Verifique se a base consolidada existe na pasta Dados.")
+            st.code(
+                "Arquivos esperados:\n"
+                "- Dados/base_consolidada_completa.xlsx ou .parquet\n"
+                "- Dados/Base Salesforce.xlsx (opcional)\n"
+                "- Dados/pedidos_manuais.xlsx (opcional)"
+            )
+            return
+
+        col_data_filtro = _coluna_data_filtro(df)
+        data_inicio_default = _primeiro_dia_mes_atual()
+        data_fim_default = _ultimo_dia_mes_atual()
+
+        st.markdown('<div class="soft-card">', unsafe_allow_html=True)
+        st.markdown('<p class="section-title">🔎 Filtros</p>', unsafe_allow_html=True)
+
+        f1, f2, f3, f4 = st.columns(4)
+        with f1:
+            flt_loc = st.selectbox(
+                "Locadora",
+                ["Todas"] + sorted([x for x in df["Locadora"].dropna().astype(str).unique().tolist() if x]),
+                key="rel_loc",
+            )
+        with f2:
+            flt_seg = st.selectbox(
+                "Segmento",
+                ["Todos"] + sorted([x for x in df["Segmento"].dropna().astype(str).unique().tolist() if x]),
+                key="rel_seg",
+            )
+        with f3:
+            flt_sta = st.selectbox(
+                "Status",
+                ["Todos"] + sorted([x for x in df["Status"].dropna().astype(str).unique().tolist() if x]),
+                key="rel_sta",
+            )
+        with f4:
+            flt_ven = st.selectbox(
+                "Consultor",
+                ["Todos"] + sorted([x for x in df["Venda"].dropna().astype(str).unique().tolist() if x]),
+                key="rel_ven",
+            )
+
+        f5, f6, f7, f8 = st.columns(4)
+        with f5:
+            dt_inicio = st.date_input(
+                "Data início",
+                value=st.session_state.get("rel_dt_inicio", data_inicio_default),
+                key="rel_dt_inicio",
+            )
+        with f6:
+            dt_fim = st.date_input(
+                "Data fim",
+                value=st.session_state.get("rel_dt_fim", data_fim_default),
+                key="rel_dt_fim",
+            )
+        with f7:
+            flt_tipo = st.selectbox("Tipo", ["Todos", "PF", "PJ"], key="rel_tipo")
+        with f8:
+            s_ped = st.text_input(
+                "Pedido / Chassi / Cliente",
+                key="rel_busca",
+                placeholder="Digite para buscar",
+            )
+
+        cb1, cb2, _ = st.columns([1.1, 1.1, 5.8])
+        with cb1:
+            if st.button("🔎 Pesquisar", type="primary", use_container_width=True, key="rel_pesq"):
+                st.session_state["rel_flt_ok"] = True
+        with cb2:
+            if st.button("🧹 Limpar", use_container_width=True, key="rel_limpar"):
+                for k in [
+                    "rel_loc", "rel_seg", "rel_sta", "rel_ven",
+                    "rel_tipo", "rel_busca", "rel_flt_ok",
+                    "rel_cols", "rel_ordem_col", "rel_ordem_desc", "rel_det_pedido",
+                    "rel_dt_inicio", "rel_dt_fim",
+                ]:
+                    if k in st.session_state:
+                        del st.session_state[k]
+                st.rerun()
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        dv = df.copy()
+
+        if flt_loc != "Todas":
+            dv = dv[dv["Locadora"] == flt_loc]
+        if flt_seg != "Todos":
+            dv = dv[dv["Segmento"] == flt_seg]
+        if flt_sta != "Todos":
+            dv = dv[dv["Status"] == flt_sta]
+        if flt_ven != "Todos":
+            dv = dv[dv["Venda"] == flt_ven]
+        if flt_tipo != "Todos":
+            dv = dv[dv["Tipo"] == flt_tipo]
+
+        if col_data_filtro:
+            serie_data = pd.to_datetime(dv[col_data_filtro], errors="coerce", dayfirst=True).dt.date
+            if dt_inicio:
+                dv = dv[serie_data >= dt_inicio]
+            if dt_fim:
+                dv = dv[serie_data <= dt_fim]
+
+        if s_ped:
+            mask = (
+                dv["Pedido"].astype(str).str.lower().str.contains(s_ped.lower(), na=False)
+                | dv["Chassi"].astype(str).str.lower().str.contains(s_ped.lower(), na=False)
+                | dv["Nome"].astype(str).str.lower().str.contains(s_ped.lower(), na=False)
+            )
+            dv = dv[mask]
+
+        total_ped = len(dv)
+        val_total = _to_num_col(dv, "Valor Total").sum()
+        mens_media = _to_num_col(dv, "Mensalidade").mean()
+        comis_total = _to_num_col(dv, "Comissão Carrera").sum()
+        n_lm = len(dv[dv["Locadora"] == "LM FROTAS"]) if not dv.empty else 0
+        n_rci = len(dv[dv["Locadora"].astype(str).isin(["RCI", "TOOT", "RCI/TOOT"])]) if not dv.empty else 0
+
+        st.markdown(
+            f"""
+            <div class="kpi-wrap">
+              <div class="kpi-box"><div class="kpi-n" style="color:{AZUL}">{total_ped}</div><div class="kpi-l">Pedidos</div></div>
+              <div class="kpi-box"><div class="kpi-n" style="color:{VERDE}">{_fmt_brl(val_total)}</div><div class="kpi-l">Valor Total</div></div>
+              <div class="kpi-box"><div class="kpi-n" style="color:{DOURADO}">{_fmt_brl(0 if pd.isna(mens_media) else mens_media)}</div><div class="kpi-l">Mensalidade Média</div></div>
+              <div class="kpi-box"><div class="kpi-n" style="color:{ROXO}">{_fmt_brl(comis_total)}</div><div class="kpi-l">Comissão Carrera</div></div>
+              <div class="kpi-box"><div class="kpi-n" style="color:#2563eb">{n_lm}</div><div class="kpi-l">LM Frotas</div></div>
+              <div class="kpi-box"><div class="kpi-n" style="color:{LARANJA}">{n_rci}</div><div class="kpi-l">RCI / TOOT</div></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            f"<p class='mini-note'><b style='color:{AZUL}'>{len(dv)}</b> pedido(s) no resultado atual</p>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("### 🏆 Top 3 Carros Mais Vendidos")
+        top3 = _top_3_carros_podium(dv)
+
+        if top3.empty:
+            st.info("Não há pedidos concluídos no período/filtro selecionado para montar o pódio.")
+        else:
+            ranking = top3.to_dict("records")
+            cards = []
+
+            if len(ranking) >= 2:
+                cards.append(_render_podium_card(2, ranking[1]["modelo"], int(ranking[1]["qtd"])))
+            if len(ranking) >= 1:
+                cards.append(_render_podium_card(1, ranking[0]["modelo"], int(ranking[0]["qtd"])))
+            if len(ranking) >= 3:
+                cards.append(_render_podium_card(3, ranking[2]["modelo"], int(ranking[2]["qtd"])))
+
+            st.markdown(
+                f"""
+                <div class="podium-card">
+                    <div style="font-size:13px; color:{CINZA_TEXTO}; margin-bottom:8px;">
+                        Considerando apenas status: <b>Pedido concluído</b>
+                    </div>
+
+                    <div class="podium-wrap">
+                        {''.join(cards)}
+                    </div>
+
+                    <div class="podium-note">
+                        Ranking baseado na quantidade de pedidos com status <b>Pedido concluído</b>
+                        dentro do resultado filtrado atual.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("### 📈 Resumos")
+        r1, r2, r3 = st.columns(3)
+
+        with r1:
+            resumo_status = dv["Status"].fillna("Sem status").astype(str).value_counts().reset_index()
+            resumo_status.columns = ["Status", "Qtd"]
+            st.markdown("**Pedidos por Status**")
+            st.dataframe(resumo_status, use_container_width=True, hide_index=True, height=260)
+
+        with r2:
+            resumo_vendedor = dv["Venda"].fillna("Sem vendedor").astype(str).value_counts().reset_index()
+            resumo_vendedor.columns = ["Consultor", "Qtd"]
+            st.markdown("**Pedidos por Consultor**")
+            st.dataframe(resumo_vendedor, use_container_width=True, hide_index=True, height=260)
+
+        with r3:
+            resumo_locadora = dv["Locadora"].fillna("Sem locadora").astype(str).value_counts().reset_index()
+            resumo_locadora.columns = ["Locadora", "Qtd"]
+            st.markdown("**Pedidos por Locadora**")
+            st.dataframe(resumo_locadora, use_container_width=True, hide_index=True, height=260)
+
+        st.markdown("### 📋 Pedidos Consolidados")
+        dv_show = _preparar_exibicao(dv)
+
+        t1, t2, t3 = st.columns([2, 2, 4])
+        with t1:
+            opcoes_ordem = [
+                c
+                for c in ["dateLastUpdated", "Data de Inclusão", "Valor Total", "Mensalidade", "Pedido", "Venda", "Status"]
+                if c in dv_show.columns
+            ]
+            ordenar_por = st.selectbox(
+                "Ordenar por",
+                opcoes_ordem if opcoes_ordem else dv_show.columns.tolist(),
+                key="rel_ordem_col",
+            )
+        with t2:
+            ordem_desc = st.checkbox("Ordem decrescente", value=True, key="rel_ordem_desc")
+        with t3:
+            cols_default = [
+                c
+                for c in [
+                    "Pedido", "Locadora", "Segmento", "Status", "Venda", "Nome",
+                    "Modelo Oficial", "Mensalidade", "Valor Total", "dateLastUpdated",
+                    "Placa", "Chassi",
+                ]
+                if c in dv_show.columns
+            ]
+
+            cols_visiveis = st.multiselect(
+                "Colunas visíveis",
+                dv_show.columns.tolist(),
+                default=cols_default if cols_default else dv_show.columns.tolist()[:10],
+                key="rel_cols",
+            )
+
+        if ordenar_por in dv.columns:
+            serie_ord = dv[ordenar_por]
+            if ordenar_por in [
+                "Valor Total", "Mensalidade", "Comissão Carrera", "Comissão Vendedor R$", "Preço NF", "KickBack", "Km", "Período"
+            ]:
+                serie_ord = _to_num_serie(serie_ord)
+            elif ordenar_por in [
+                "dateLastUpdated", "Data de Inclusão", "Data de Status", "Data da retirada", "Vigência Final do contrato", "Data Assinatura"
+            ]:
+                serie_ord = pd.to_datetime(serie_ord, errors="coerce", dayfirst=True)
+
+            dv_show = (
+                dv_show.assign(_ord=serie_ord.values)
+                .sort_values("_ord", ascending=not ordem_desc, na_position="last")
+                .drop(columns="_ord")
+            )
+        elif ordenar_por in dv_show.columns:
+            dv_show = dv_show.sort_values(ordenar_por, ascending=not ordem_desc, na_position="last")
+
+        if cols_visiveis:
+            dv_show = dv_show[cols_visiveis]
+
+        st.dataframe(
+            dv_show,
+            use_container_width=True,
+            height=520,
+            hide_index=True,
+            column_config={
+                "Mensalidade": st.column_config.NumberColumn("Mensalidade", format="R$ %.2f"),
+                "Valor Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
+                "Comissão Carrera": st.column_config.NumberColumn("Comissão Carrera", format="R$ %.2f"),
+                "Comissão Vendedor R$": st.column_config.NumberColumn("Comissão Vendedor", format="R$ %.2f"),
+                "KickBack": st.column_config.NumberColumn("KickBack", format="R$ %.2f"),
+                "Preço NF": st.column_config.NumberColumn("Preço NF", format="R$ %.2f"),
+                "Km": st.column_config.NumberColumn("Km", format="%d"),
+                "Período": st.column_config.NumberColumn("Período", format="%d"),
+            },
+        )
+
+        st.markdown("### 🔎 Detalhe do Pedido")
+        if "Pedido" in dv.columns and not dv.empty:
+            pedidos_unicos = sorted(dv["Pedido"].astype(str).dropna().unique().tolist())
+            pedido_sel = st.selectbox(
+                "Selecione um pedido",
+                [""] + pedidos_unicos,
+                key="rel_det_pedido",
+            )
+
+            if pedido_sel:
+                detalhe = dv[dv["Pedido"].astype(str) == str(pedido_sel)].copy()
+                detalhe_show = _preparar_exibicao(detalhe)
+                st.dataframe(detalhe_show, use_container_width=True, hide_index=True, height=220)
+
+        buf = io.BytesIO()
+        dv_export = _preparar_exibicao(dv)
+        dv_export.to_excel(buf, index=False, engine="openpyxl")
+        buf.seek(0)
+
+        st.download_button(
+            "📥 Exportar Excel",
+            data=buf.getvalue(),
+            file_name=f"relatorio_carrera_{datetime.date.today().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="rel_download",
+        )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # ABA DADOS
+    # ──────────────────────────────────────────────────────────────────────
+    if pode_editar:
+        with abas[1]:
+            st.markdown(f"<p class='page-title' style='font-size:24px'>📤 Gestão de Dados</p>", unsafe_allow_html=True)
+            st.markdown("#### 🤖 Extrações LM")
+            st.caption("Execute os scripts em sequência. Cada etapa depende da anterior.")
+
+            scripts = [
+                ("1️⃣ Extrair Pedidos LM", "Extracao_LM.py", "Extrai pedidos da API → Lista_LM.xlsx"),
+                ("2️⃣ Detalhar Carros", "Estrutura_Carros.py", "Detalha carros por pedido → vListaCarrosDetalhes.xlsx"),
+                ("3️⃣ Extrair Preços/Ofertas", "Executa_Precos.py", "Extrai ofertas por canal → Ofertas_Todos_SalesChannels.xlsx"),
+                ("4️⃣ Consolidar Base LM", "Consolida_base.py", "Merge de todas as bases → base_consolidada_completa.xlsx"),
+            ]
+
+            for label, script, desc in scripts:
+                c1, c2 = st.columns([2, 6])
+                script_path = os.path.join(DADOS_DIR, script)
+                existe = os.path.exists(script_path)
+
+                with c1:
+                    if st.button(
+                        label,
+                        key=f"run_{script}",
+                        use_container_width=True,
+                        disabled=not existe,
+                        type="primary",
+                    ):
+                        st.session_state[f"run_{script}_ok"] = True
+
+                with c2:
+                    st.caption("⚠️ Não encontrado" if not existe else desc)
+
+                if st.session_state.pop(f"run_{script}_ok", False):
+                    with st.expander(f"📋 Log — {label}", expanded=True):
+                        try:
+                            proc = subprocess.Popen(
+                                [sys.executable, script_path],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True,
+                                cwd=DADOS_DIR,
+                            )
+
+                            output = []
+                            placeholder = st.empty()
+
+                            for line in proc.stdout:
+                                output.append(line.rstrip())
+                                placeholder.code("\n".join(output[-30:]))
+
+                            proc.wait()
+
+                            if proc.returncode == 0:
+                                st.cache_data.clear()
+                                st.success("✅ Concluído!")
+                            else:
+                                st.error("❌ Erro na execução.")
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+
+            st.divider()
+            st.markdown("#### 📁 Arquivos encontrados em Dados")
+
+            arquivos_status = [
+                ("Base consolidada XLSX", ARQ_BASE_PRINCIPAL_XLSX),
+                ("Base consolidada Parquet", ARQ_BASE_PRINCIPAL_PARQUET),
+                ("Base Salesforce", ARQ_SALESFORCE),
+                ("Pedidos manuais", ARQ_MANUAIS),
+                ("Cockpit Carrera", ARQ_COCKPIT),
+            ]
+
+            for nome, caminho in arquivos_status:
+                if os.path.exists(caminho):
+                    dt = datetime.datetime.fromtimestamp(os.path.getmtime(caminho)).strftime("%d/%m/%Y %H:%M")
+                    st.success(f"{nome}: encontrado · atualizado em {dt}")
+                else:
+                    st.warning(f"{nome}: não encontrado")
+
+    # ──────────────────────────────────────────────────────────────────────
+    # ABA CADASTRO MANUAL
+    # ──────────────────────────────────────────────────────────────────────
+    if pode_editar:
+        with abas[2]:
+            st.markdown(f"<p class='page-title' style='font-size:24px'>➕ Cadastro Manual de Pedidos</p>", unsafe_allow_html=True)
+            st.markdown(
+                "<p class='mini-note'>Para pedidos que não constam na base principal. "
+                "O consultor pode ser preenchido automaticamente via Salesforce local.</p>",
+                unsafe_allow_html=True,
+            )
+
+            df_sf = _ler_salesforce_local()
+
+            locadoras_opts = ["LM FROTAS", "RCI", "TOOT", "GM Fleet", "Arval", "Localiza", "Outra"]
+            segmentos_opts = ["Sign & Drive", "S&D Empresas", "Nissan Move", "AssineCar GWM", "GM Fleet", "GAC Go and Drive", "AssineCar Multbrand", "Outro"]
+            status_opts = ["Em locação", "Contrato assinado", "Pedido concluído", "Cancelado", "Aguardando", "Outro"]
+
+            with st.form("form_manual"):
+                st.markdown("**📋 Identificação**")
+                m1, m2, m3 = st.columns(3)
+                with m1:
+                    loc = st.selectbox("Locadora *", locadoras_opts)
+                    seg = st.selectbox("Segmento *", segmentos_opts)
+                with m2:
+                    pedido = st.text_input("Nº Pedido *")
+                    cliente = st.text_input("Cliente *")
+                with m3:
+                    doc = st.text_input("CPF / CNPJ *")
+                    status = st.selectbox("Status", status_opts)
+
+                st.markdown("**🚗 Veículo**")
+                v1, v2, v3 = st.columns(3)
+                with v1:
+                    modelo = st.text_input("Modelo")
+                    cor = st.text_input("Cor")
+                with v2:
+                    chassi = st.text_input("Chassi")
+                    placa = st.text_input("Placa")
+                with v3:
+                    marca = st.text_input("Marca")
+                    opcional = st.text_input("Opcional")
+
+                st.markdown("**📅 Contrato**")
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    data_ass = st.date_input("Data Assinatura", value=None, format="DD/MM/YYYY")
+                with c2:
+                    plano = st.number_input("Plano (meses)", min_value=0, step=6, value=0)
+                with c3:
+                    km = st.number_input("KM Mensal", min_value=0, step=500, value=0)
+                with c4:
+                    mensalidade = st.number_input("Mensalidade (R$)", min_value=0.0, step=100.0, value=0.0)
+
+                st.markdown("**📍 Local**")
+                l1, l2, l3 = st.columns(3)
+                with l1:
+                    local_venda = st.text_input("Local de Venda")
+                with l2:
+                    uf = st.text_input("UF")
+                with l3:
+                    city = st.text_input("Cidade")
+
+                consultor_preview = _lookup_consultor(df_sf, pedido) if pedido else "—"
+                if pedido:
+                    cor_info = "#22c55e" if consultor_preview != "Não encontrado" else "#f59e0b"
+                    st.markdown(
+                        f"<p style='font-size:13px;color:{cor_info}'>👤 Consultor: <b>{consultor_preview}</b></p>",
+                        unsafe_allow_html=True,
+                    )
+
+                enviado = st.form_submit_button("💾 Cadastrar Pedido", use_container_width=True, type="primary")
+
+            if enviado:
+                if not pedido or not cliente or not doc:
+                    st.error("Nº Pedido, Cliente e CPF/CNPJ são obrigatórios.")
+                else:
+                    agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                    dados = {
+                        "Locadora": loc,
+                        "Segmento": seg,
+                        "Pedido": pedido,
+                        "Nome": cliente,
+                        "Documento": doc,
+                        "Tipo": _tipo_cliente(doc),
+                        "Status": status,
+                        "Modelo Oficial": modelo,
+                        "Cor": cor,
+                        "Chassi": chassi,
+                        "Placa": placa,
+                        "Marca": marca,
+                        "Opcional": opcional,
+                        "Data Assinatura": data_ass.strftime("%d/%m/%Y") if data_ass else "",
+                        "Período": str(plano),
+                        "Km": str(km),
+                        "Mensalidade": str(mensalidade),
+                        "Local de Venda": local_venda,
+                        "UF": uf,
+                        "City": city,
+                        "Venda": consultor_preview,
+                        "Data de Inclusão": agora,
+                        "Origem venda": "Manual",
+                    }
+
+                    pg = st.progress(0, text="Salvando...")
+                    pg.progress(60, text="Gravando arquivo local...")
+
+                    if _gravar_manual_local(dados):
+                        pg.progress(100, text="Concluído!")
+                        _ler_manuais_local.clear()
+                        st.cache_data.clear()
+                        st.success(f"✅ Pedido **{pedido}** cadastrado!")
+                        st.balloons()
+
+            st.divider()
+            st.markdown("**📋 Pedidos cadastrados manualmente**")
+            df_man = _ler_manuais_local()
+            if df_man.empty:
+                st.info("Nenhum pedido manual cadastrado ainda.")
             else:
-                base["ano_mes"] = base["data_referencia"].dt.to_period("M").astype(str)
-                mensal = (
-                    base.groupby("ano_mes", as_index=False)["quantidade_veiculos"]
-                    .sum()
-                )
-
-                fig = go.Figure()
-                fig.add_trace(go.Bar(
-                    x=mensal["ano_mes"],
-                    y=mensal["quantidade_veiculos"],
-                    name="Carros",
-                    marker_color=AZUL
-                ))
-                fig.update_layout(
-                    height=380,
-                    paper_bgcolor="white",
-                    plot_bgcolor="white",
-                    margin=dict(l=20, r=20, t=20, b=20),
-                    xaxis_title="Mês",
-                    yaxis_title="Quantidade",
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-    with c2:
-        st.subheader("Ranking de vendedores")
-        if "consultor" not in df.columns or df.empty:
-            st.info("Sem dados.")
-        else:
-            ranking = (
-                df.groupby("consultor", as_index=False)["quantidade_veiculos"]
-                .sum()
-                .sort_values("quantidade_veiculos", ascending=False)
-                .head(10)
-            )
-
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=ranking["quantidade_veiculos"],
-                y=ranking["consultor"],
-                orientation="h",
-                marker_color=DOURADO
-            ))
-            fig.update_layout(
-                height=380,
-                paper_bgcolor="white",
-                plot_bgcolor="white",
-                margin=dict(l=20, r=20, t=20, b=20),
-                xaxis_title="Carros",
-                yaxis_title="Consultor",
-                yaxis=dict(autorange="reversed"),
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-    c3, c4 = st.columns(2)
-
-    with c3:
-        st.subheader("Entregas por fornecedor")
-        if "fornecedor" not in df.columns or df.empty or "entregue_flag" not in df.columns:
-            st.info("Sem dados.")
-        else:
-            entregas = (
-                df[df["entregue_flag"]]
-                .groupby("fornecedor", as_index=False)["quantidade_veiculos"]
-                .sum()
-                .sort_values("quantidade_veiculos", ascending=False)
-                .head(10)
-            )
-
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=entregas["fornecedor"],
-                y=entregas["quantidade_veiculos"],
-                marker_color=VERDE
-            ))
-            fig.update_layout(
-                height=380,
-                paper_bgcolor="white",
-                plot_bgcolor="white",
-                margin=dict(l=20, r=20, t=20, b=20),
-                xaxis_title="Fornecedor",
-                yaxis_title="Carros entregues",
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-    with c4:
-        st.subheader("Agendamentos futuros")
-        if "data_agendamento" not in df.columns:
-            st.info("Sem dados.")
-        else:
-            futuro = df[
-                df["data_agendamento"].notna()
-                & (df["data_agendamento"] >= pd.Timestamp.today().normalize())
-            ].copy()
-
-            if futuro.empty:
-                st.info("Sem agendamentos futuros.")
-            else:
-                futuro["dia"] = futuro["data_agendamento"].dt.date.astype(str)
-                agenda = (
-                    futuro.groupby("dia", as_index=False)["quantidade_veiculos"]
-                    .sum()
-                    .sort_values("dia")
-                )
-
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=agenda["dia"],
-                    y=agenda["quantidade_veiculos"],
-                    mode="lines+markers",
-                    line=dict(color=AZUL_CLARO, width=3)
-                ))
-                fig.update_layout(
-                    height=380,
-                    paper_bgcolor="white",
-                    plot_bgcolor="white",
-                    margin=dict(l=20, r=20, t=20, b=20),
-                    xaxis_title="Data",
-                    yaxis_title="Carros agendados",
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-
-# =========================================================
-# TABELA + EXPORTAÇÃO
-# =========================================================
-@st.cache_data(ttl=300)
-def gerar_excel_download(df: pd.DataFrame) -> bytes:
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Relatorio")
-    return output.getvalue()
-
-
-def render_tabela(df: pd.DataFrame) -> None:
-    st.subheader("Base detalhada")
-
-    colunas_preferidas = [
-        "pedido_id",
-        "order_item_id",
-        "cliente",
-        "consultor",
-        "Gerente",
-        "Frente",
-        "fornecedor",
-        "segmento",
-        "Locadora",
-        "dealer",
-        "modelo",
-        "marca",
-        "status_pedido",
-        "status_entrega",
-        "fase",
-        "valor_total",
-        "preco_nf",
-        "quantidade_veiculos",
-        "data_criacao",
-        "data_assinatura",
-        "data_agendamento",
-        "data_entrega",
-        "cidade",
-        "estado",
-    ]
-
-    cols_show = [c for c in colunas_preferidas if c in df.columns]
-    if not cols_show:
-        cols_show = list(df.columns)
-
-    df_show = df[cols_show].copy()
-
-    for c in ["valor_total", "preco_nf"]:
-        if c in df_show.columns:
-            df_show[c] = df_show[c].apply(_brl)
-
-    st.dataframe(df_show, use_container_width=True, height=520)
-
-    excel_bytes = gerar_excel_download(df_show)
-    st.download_button(
-        "Baixar Excel",
-        data=excel_bytes,
-        file_name="relatorio_lm.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
-
-
-# =========================================================
-# MAIN
-# =========================================================
-def render() -> None:
-    st.markdown(CSS, unsafe_allow_html=True)
-    st.title("Relatório de Vendas e Entregas")
-
-    base = montar_base()
-
-    if base.empty:
-        st.warning(
-            "Não encontrei a base principal de pedidos. "
-            "Verifique se existe 'Dados/atual/lm_atual.parquet' ou 'Dados/base_pedidos.xlsx'."
-        )
-        return
-
-    df = aplicar_filtros(base)
-
-    if df.empty:
-        st.info("Nenhum registro encontrado para os filtros selecionados.")
-        return
-
-    render_kpis(df)
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    render_curva_mensal(df)
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    render_graficos(df)
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    render_tabela(df)
-
-
-# compatibilidade
-show = render
+                st.dataframe(df_man, use_container_width=True, height=300, hide_index=True)

@@ -1,0 +1,292 @@
+# 🚀 Importação de bibliotecas
+import requests
+import pandas as pd
+import time
+from datetime import datetime
+from plyer import notification
+import os
+
+# 🔑 Configurações de URL e Autenticação
+url = "https://backend.vwsignanddrive.com.br/api/dealership-management"
+token = "Bearer SEU_TOKEN_AQUI"  # 🔥 Substituir pelo token válido
+
+headers = {
+    "Authorization": token,
+    "Content-Type": "application/json",
+    "accept": "application/json, text/plain, */*",
+    "origin": "https://portaldealer.lmmobilidade.com.br/my-orders",
+}
+
+# 🎯 Definir quantidade máxima de páginas para extrair
+try:
+    max_paginas = int(input("📄 Quantas páginas você deseja extrair? (0 = todas): "))
+    if max_paginas < 0:
+        raise ValueError
+except ValueError:
+    print("❌ Valor inválido. Extraindo todas as páginas.")
+    max_paginas = 0
+
+# 🔧 Parâmetros iniciais
+page_select = 1
+per_page = 20
+has_next_page = True
+lista_consulta = []
+status_logs = []
+
+# 🧠 Função de Consulta com Tratamento de Erros
+def consulta_lm(link, head, page_select, per_page, tentativas=3):
+    params = {
+        "dealershipId": "21",
+        "dealershipGroupId": "234",
+        "role": "Admin do Grupo",
+        "QuantityPerPage": per_page,
+        "CurrentPage": page_select,
+    }
+
+    timeout_usado = 120 if page_select >= 10 else 30
+
+    for tentativa in range(1, tentativas + 1):
+        try:
+            response = requests.get(
+                link, headers=head, params=params, timeout=timeout_usado
+            )
+
+            print(f"📡 Status HTTP: {response.status_code}")
+            print(f"🔗 URL utilizada: {response.url}")
+
+            status_logs.append(
+                (
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    response.status_code,
+                    response.url,
+                    "✅ Sucesso" if response.ok else "❌ Erro",
+                )
+            )
+
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.Timeout:
+            wait_time = 2 ** tentativa
+            print(
+                f"⚠️ Timeout na tentativa {tentativa}/{tentativas} "
+                f"(timeout={timeout_usado}s). Aguardando {wait_time}s..."
+            )
+
+            status_logs.append(
+                (
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Timeout",
+                    link,
+                    "❌ Erro",
+                )
+            )
+
+            time.sleep(wait_time)
+            continue
+
+        except requests.exceptions.HTTPError as e:
+            status_code = response.status_code if "response" in locals() else "N/A"
+            url_usada = response.url if "response" in locals() else link
+
+            print(
+                f"❌ Erro HTTP {status_code} na tentativa "
+                f"{tentativa}/{tentativas}: {e}"
+            )
+
+            status_logs.append(
+                (
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    status_code,
+                    url_usada,
+                    "❌ Erro",
+                )
+            )
+
+            if isinstance(status_code, int) and status_code >= 500:
+                time.sleep(2)
+                continue
+            else:
+                break
+
+        except requests.exceptions.RequestException as e:
+            print(
+                f"❌ Erro na conexão (tentativa {tentativa}/{tentativas}): {e}"
+            )
+
+            status_logs.append(
+                (
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Erro Conexão",
+                    link,
+                    "❌ Erro",
+                )
+            )
+
+            time.sleep(5)
+            continue
+
+        except Exception as e:
+            print(f"❌ Erro inesperado na tentativa {tentativa}: {e}")
+
+            status_logs.append(
+                (
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Erro Desconhecido",
+                    link,
+                    "❌ Erro",
+                )
+            )
+
+            time.sleep(2)
+            continue
+
+    print("❌ Falha após várias tentativas de conexão.")
+    return None
+
+
+# 🔄 Loop de Extração de Dados
+while has_next_page and (max_paginas == 0 or page_select <= max_paginas):
+
+    print(f"\n🚀 Extraindo página: {page_select}")
+
+    resultado = consulta_lm(
+        link=url, head=headers, page_select=page_select, per_page=per_page
+    )
+
+    if resultado is None:
+        print(f"❌ Erro na extração da página {page_select}. Encerrando processo.")
+        break
+
+    if "items" in resultado:
+        itens = resultado["items"].get("itens", [])
+        df_temp = pd.DataFrame(itens)
+
+        if not df_temp.empty:
+            lista_consulta.append(df_temp)
+            print(
+                f"✅ Página {page_select} adicionada com "
+                f"{len(df_temp)} registros."
+            )
+        else:
+            print(f"⚠️ Página {page_select} retornou sem itens.")
+            break
+
+        has_next_page = resultado["items"].get("hasNextPage", False)
+        print(f"➡️ hasNextPage retornado: {has_next_page}")
+
+        page_select += 1
+
+    else:
+        print(
+            f"❌ Chave 'items' não encontrada na resposta "
+            f"da página {page_select}."
+        )
+        print("🔍 Resposta recebida:", resultado)
+        break
+
+    time.sleep(2)
+
+
+# 📦 Consolidação dos Dados e Exportação
+if lista_consulta:
+
+    df_final = pd.concat(lista_consulta, ignore_index=True)
+
+    print(
+        f"\n✅ Dados concatenados com sucesso. "
+        f"Total de registros extraídos: {len(df_final)}"
+    )
+
+    with pd.ExcelWriter("Lista_LM.xlsx", mode="w", engine="openpyxl") as writer:
+        df_final.to_excel(writer, sheet_name="Dados", index=False)
+
+    print(
+        f"📁 Arquivo 'Lista_LM.xlsx' gerado com "
+        f"{len(df_final)} linhas."
+    )
+
+else:
+    df_final = pd.DataFrame()
+    print("\n⚠️ Nenhum dado foi extraído. Nenhum arquivo gerado.")
+
+
+# 📊 Resumo dos Status HTTP
+if status_logs:
+
+    df_status = pd.DataFrame(
+        status_logs,
+        columns=["DataHora", "Status HTTP", "URL", "Resultado"],
+    )
+
+    print("\n📊 Resumo dos códigos de status recebidos:")
+    print(df_status.to_string(index=False))
+
+    with pd.ExcelWriter(
+        "Lista_LM.xlsx",
+        mode="a",
+        if_sheet_exists="replace",
+        engine="openpyxl",
+    ) as writer:
+        df_status.to_excel(writer, sheet_name="Status_HTTP", index=False)
+
+    print(
+        f"📁 Aba 'Status_HTTP' adicionada. "
+        f"Total de logs: {len(df_status)}"
+    )
+
+
+# 📦 Arquivo de Concluídos (append sem sobrescrever histórico)
+df_concatenado = pd.DataFrame()
+
+if not df_final.empty:
+
+    df_filtrado = df_final[
+        df_final["orderStatus"].isin(
+            ["Pedido concluído", "Contrato assinado"]
+        )
+    ]
+
+    if not df_filtrado.empty:
+
+        file_name = "Lista_LM_Concluidos.xlsx"
+
+        if os.path.exists(file_name):
+            df_existente = pd.read_excel(file_name)
+            df_concatenado = pd.concat(
+                [df_existente, df_filtrado],
+                ignore_index=True,
+            )
+        else:
+            df_concatenado = df_filtrado
+
+        with pd.ExcelWriter(file_name, mode="w", engine="openpyxl") as writer:
+            df_concatenado.to_excel(
+                writer,
+                sheet_name="Concluidos",
+                index=False,
+            )
+
+        print(
+            f"📁 Arquivo '{file_name}' atualizado. "
+            f"Total de linhas: {len(df_concatenado)} "
+            f"(adicionados {len(df_filtrado)} novos)."
+        )
+
+    else:
+        print(
+            "⚠️ Nenhum registro concluído/assinado "
+            "encontrado nesta execução."
+        )
+
+
+# 📢 Notificação desktop ao finalizar
+notification.notify(
+    title="Extração Finalizada 🚀",
+    message=(
+        f"Processo concluído!\n"
+        f"Lista_LM.xlsx: {len(df_final)} linhas\n"
+        f"Lista_LM_Concluidos.xlsx: {len(df_concatenado)} linhas"
+    ),
+    timeout=3,
+)
