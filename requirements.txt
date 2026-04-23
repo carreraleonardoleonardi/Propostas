@@ -8,3 +8,5 @@ extra-streamlit-components
 reportlab
 plotly
 pyarrow
+gspread
+google-auth
