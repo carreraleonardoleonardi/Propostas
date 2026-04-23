@@ -248,7 +248,7 @@ def _ler_base_local() -> pd.DataFrame:
         if os.path.exists(ARQ_BASE_PRINCIPAL_PARQUET):
             return pd.read_parquet(ARQ_BASE_PRINCIPAL_PARQUET)
         if os.path.exists(ARQ_BASE_PRINCIPAL_XLSX):
-            return pd.read_excel(ARQ_BASE_PRINCIPAL_XLSX)
+            return pd.read_excel(ARQ_BASE_PRINCIPAL_XLSX, sheet_name="Sheet1")
         return pd.DataFrame()
     except Exception as e:
         st.error(f"Erro ao ler a base consolidada local: {e}")
