@@ -6,3 +6,5 @@ openpyxl
 pillow
 extra-streamlit-components
 reportlab
+plotly
+pyarrow
