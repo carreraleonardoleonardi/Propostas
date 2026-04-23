@@ -12,9 +12,9 @@ CU_WEBHOOK   = "https://script.google.com/macros/s/AKfycbzoPBsA5OAqewzEo9GdTZSXC
 
 CU_COLUNAS = ["data_entrada","data_saida","locadora","local","marca","modelo","placa","chassi","cor","km","vex"]
 
-CU_LOCADORAS = ["LM FROTAS","MOVE","RCI","TOOT","OUTRO"]
+CU_LOCADORAS = ["LM FROTAS","GM Fleet","RCI","TOOT","OUTRO"]
 CU_LOCAIS    = ["LOJA ALPHAVILLE","LOJA VILLA LOBOS","LOJA OSASCO","LOJA BUTANTÃ","LOJA COTIA","OUTRO DN"]
-CU_MARCAS    = ["VOLKSWAGEN","CHEVROLET","NISSAN","JEEP","GWM","RENAULT","HYUNDAI","TOYOTA","FIAT","FORD","OUTRO"]
+CU_MARCAS    = ["Volkswagen","Chevrolet","Nissan","Jeep","GWM","GAC","Omoda", "Renault","Hyundai","Toyota","Fiat","Ford","Honda","Citroën","Peugeot","Mitsubishi","Subaru","Chery","JAC","Lexus","Kia","Dodge","BMW","Mercedes-Benz","Audi","Porsche","Volvo","Mini","Land Rover","Jaguar","Alfa Romeo","Aston Martin","Bentley","Rolls-Royce","McLaren","Pagani","Bugatti","Koenigsegg","Zeekr","BYD","Leapmotor"]
 
 
 @st.cache_data(ttl=60)
@@ -78,14 +78,14 @@ def render():
             k1, k2, k3 = st.columns(3)
             k1.metric("Total",        total)
             k2.metric("No Pátio",     em_pat)
-            k3.metric("Saídos",       saidos)
+            k3.metric("Retirados",       saidos)
 
             st.divider()
 
             # Filtros
             fl1, fl2, fl3 = st.columns(3)
             with fl1:
-                flt_sit = st.selectbox("Situação", ["Todos","No Pátio","Saídos"], key="cu_flt_sit")
+                flt_sit = st.selectbox("Situação", ["Todos","No Pátio","Retirados"], key="cu_flt_sit")
             with fl2:
                 marcas_opts = ["Todas"] + sorted(df["marca"].dropna().unique().tolist()) if "marca" in df.columns else ["Todas"]
                 flt_mar = st.selectbox("Marca", marcas_opts, key="cu_flt_mar")
@@ -94,14 +94,14 @@ def render():
                 flt_loc = st.selectbox("Local", local_opts, key="cu_flt_loc")
 
             b1, b2 = st.columns(2)
-            with b1: busca_placa  = st.text_input("🪪 Placa",  placeholder="Ex: QSO8D24", key="cu_b_placa")
-            with b2: busca_chassi = st.text_input("🔑 Chassi", placeholder="Ex: 9BWB...",  key="cu_b_chassi")
+            with b1: busca_placa  = st.text_input("🪪 Placa",  placeholder="Ex: Placa", key="cu_b_placa")
+            with b2: busca_chassi = st.text_input("🔑 Chassi", placeholder="Ex: Chassi",  key="cu_b_chassi")
 
             df_view = df.copy()
 
             if flt_sit == "No Pátio":
                 df_view = df_view[df_view["data_saida"].isna() | (df_view["data_saida"].astype(str).str.strip().isin(["","nan","None","NaT"]))]
-            elif flt_sit == "Saídos":
+            elif flt_sit == "Retirados":
                 df_view = df_view[~(df_view["data_saida"].isna() | (df_view["data_saida"].astype(str).str.strip().isin(["","nan","None","NaT"])))]
 
             if flt_mar != "Todas" and "marca" in df_view.columns:
@@ -118,7 +118,7 @@ def render():
             for i, (idx, row) in enumerate(df_view.iterrows()):
                 tem_saida = cu_val(row, "data_saida") != ""
                 cor_borda = "#10b981" if tem_saida else "#f97316"
-                status_txt = "Saído" if tem_saida else "No Pátio"
+                status_txt = "Retirado" if tem_saida else "No Pátio"
                 cor_badge  = "#10b981" if tem_saida else "#f97316"
 
                 with st.container(border=False):
