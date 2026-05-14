@@ -539,26 +539,22 @@ def render():
             locs   = ["Todas"] + sorted([x for x in df_all["Locadora"].dropna().astype(str).unique() if x])
             flt_loc = st.selectbox("Locadora", locs, key="d_loc")
 
-        bc1, bc2, _ = st.columns([1,1,6])
-        with bc1:
-            pesquisar = st.button("🔎 Aplicar", type="primary", use_container_width=True, key="d_pesq")
-        with bc2:
-            if st.button("🧹 Limpar", use_container_width=True, key="d_limpar"):
-                for k in ["d_ini","d_fim","d_seg","d_ven","d_loc","d_ok"]:
+        bc2_col, _ = st.columns([1,7])
+        with bc2_col:
+            if st.button("🧹 Limpar filtros", use_container_width=True, key="d_limpar"):
+                for k in ["d_ini","d_fim","d_seg","d_ven","d_loc"]:
                     if k in st.session_state: del st.session_state[k]
                 st.rerun()
-        if pesquisar: st.session_state["d_ok"] = True
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Aplica filtros
+        # Aplica filtros sempre
         dv = df_all.copy()
-        if st.session_state.get("d_ok"):
-            if "Data de Inclusão" in dv.columns:
-                datas = pd.to_datetime(dv["Data de Inclusão"], errors="coerce", dayfirst=True).dt.date
-                dv = dv[(datas >= dt_ini) & (datas <= dt_fim)]
-            if flt_seg != "Todos":  dv = dv[dv["Segmento"] == flt_seg]
-            if flt_ven != "Todos":  dv = dv[dv["Venda"]    == flt_ven]
-            if flt_loc != "Todas":  dv = dv[dv["Locadora"] == flt_loc]
+        if "Data de Inclusão" in dv.columns:
+            datas = pd.to_datetime(dv["Data de Inclusão"], errors="coerce", dayfirst=True).dt.date
+            dv = dv[(datas >= dt_ini) & (datas <= dt_fim)]
+        if flt_seg != "Todos":  dv = dv[dv["Segmento"] == flt_seg]
+        if flt_ven != "Todos":  dv = dv[dv["Venda"]    == flt_ven]
+        if flt_loc != "Todas":  dv = dv[dv["Locadora"] == flt_loc]
 
         # Base de concluídos
         dc = _concluidos(dv)
@@ -734,27 +730,24 @@ def render():
         with pf2: flt_loc2 = st.selectbox("Locadora",["Todas"]+sorted([x for x in df_all["Locadora"].dropna().astype(str).unique() if x]), key="p_loc2")
         with pf3: flt_ven2 = st.selectbox("Consultor",["Todos"]+sorted([x for x in df_all["Venda"].dropna().astype(str).unique() if x]), key="p_ven2")
         with pf4: s_busca  = st.text_input("🔎 Pedido / Chassi / Cliente", key="p_busca2", placeholder="Buscar...")
-        pb1,pb2,_ = st.columns([1,1,6])
-        with pb1:
-            if st.button("🔎 Pesquisar", type="primary", use_container_width=True, key="p_pesq2"):
-                st.session_state["p_ok2"] = True
-        with pb2:
-            if st.button("🧹 Limpar", use_container_width=True, key="p_limpar2"):
-                for k in ["p_sta2","p_loc2","p_ven2","p_busca2","p_ok2"]:
+        pb2_col, _ = st.columns([1,7])
+        with pb2_col:
+            if st.button("🧹 Limpar filtros", use_container_width=True, key="p_limpar2"):
+                for k in ["p_sta2","p_loc2","p_ven2","p_busca2"]:
                     if k in st.session_state: del st.session_state[k]
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
+        # Aplica filtros sempre
         dp = df_all.copy()
-        if st.session_state.get("p_ok2"):
-            if flt_sta2 != "Todos": dp = dp[dp["Status"]   == flt_sta2]
-            if flt_loc2 != "Todas": dp = dp[dp["Locadora"] == flt_loc2]
-            if flt_ven2 != "Todos": dp = dp[dp["Venda"]    == flt_ven2]
-            if s_busca:
-                mask = (dp["Pedido"].astype(str).str.lower().str.contains(s_busca.lower(), na=False) |
-                        dp["Chassi"].astype(str).str.lower().str.contains(s_busca.lower(), na=False) |
-                        dp["Nome"].astype(str).str.lower().str.contains(s_busca.lower(),   na=False))
-                dp = dp[mask]
+        if flt_sta2 != "Todos": dp = dp[dp["Status"]   == flt_sta2]
+        if flt_loc2 != "Todas": dp = dp[dp["Locadora"] == flt_loc2]
+        if flt_ven2 != "Todos": dp = dp[dp["Venda"]    == flt_ven2]
+        if s_busca:
+            mask = (dp["Pedido"].astype(str).str.lower().str.contains(s_busca.lower(), na=False) |
+                    dp["Chassi"].astype(str).str.lower().str.contains(s_busca.lower(), na=False) |
+                    dp["Nome"].astype(str).str.lower().str.contains(s_busca.lower(),   na=False))
+            dp = dp[mask]
 
         st.markdown(f"<p style='color:{CINZA};font-size:13px;margin:6px 0 10px'>"
                     f"<b style='color:{AZUL}'>{len(dp)}</b> pedido(s)</p>", unsafe_allow_html=True)

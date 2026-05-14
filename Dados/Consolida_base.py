@@ -1,32 +1,35 @@
 # -*- coding: utf-8 -*-
 """
+Consolida_Base_LM.py — Carrera Signature
 ============================================================
-CONSOLIDADOR BASE LM — CARRERA SIGNATURE
-Versão reestruturada
-============================================================
+Gera base_consolidada_completa.xlsx com 1 linha por carro.
 
-Lógica:
-1) Base principal por pedido
-   - Lista_LM.xlsx
-   - Lista_LM_Concluidos.xlsx
-   - vListaConsultoresDetalhes.xlsx
-   - Lista_DN.xlsx
+Campos finais:
+  orderId, clientType, prefix, segmentName, name, cpfCnpj,
+  dateCreated, dateLastUpdated, userId, Proprietario da Oportunidade,
+  orderStatus, dealershipId, dealershipGroupId, monthlyKmValue,
+  deadline, total_km, modelCode, model, color, typeOfPainting,
+  optional, vehicleValue, publicPrice, monthlyInstallment,
+  overrunKm, finalPlate, deadlineInfo, kickback, chassis, deliveryPlate
 
-2) Base detalhada por carro/item
-   - vListaCarrosDetalhes.xlsx
-   - Ofertas_Todos_SalesChannels.xlsx
+Fontes:
+  1. Lista_LM.xlsx                    → campos do pedido
+  2. vListaCarrosDetalhes.xlsx        → 1 linha por carro (expande)
+  3. orderItemStatus (JSON)           → chassis, deliveryPlate
+  4. Ofertas_Todos_SalesChannels.xlsx → preços via productId
+  5. Base Salesforce.xlsx             → Proprietario da Oportunidade
 
-3) Enriquecimento externo
-   - Base Salesforce.xlsx
-
-4) Exportação final
-   - 1 linha por carro do pedido
+Ordem dos joins:
+  pedidos → salesforce (1:1, antes de expandir)
+  pedidos × carros     (1:N, expande para 1 linha/carro)
+  carros  → ofertas    (N:1, via productId)
+  extrai  orderItemStatus → chassis, deliveryPlate
 """
 
 import os
 import sys
-import traceback
 import ast
+import traceback
 from datetime import datetime
 
 import pandas as pd
@@ -37,707 +40,360 @@ import pandas as pd
 # ============================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-ARQ_PEDIDOS = os.path.join(BASE_DIR, "Lista_LM.xlsx")
-ARQ_CONCLUIDOS = os.path.join(BASE_DIR, "Lista_LM_Concluidos.xlsx")
-ARQ_CONSULTORES = os.path.join(BASE_DIR, "vListaConsultoresDetalhes.xlsx")
-ARQ_CARROS = os.path.join(BASE_DIR, "vListaCarrosDetalhes.xlsx")
-ARQ_DN = os.path.join(BASE_DIR, "Lista_DN.xlsx")
-ARQ_OFERTAS = os.path.join(BASE_DIR, "Ofertas_Todos_SalesChannels.xlsx")
-ARQ_SALESFORCE = os.path.join(BASE_DIR, "Base Salesforce.xlsx")
+def _p(nome): return os.path.join(BASE_DIR, nome)
 
-ARQ_SAIDA = os.path.join(BASE_DIR, "base_consolidada_completa.xlsx")
+ARQ_PEDIDOS    = _p("Lista_LM.xlsx")
+ARQ_CARROS     = _p("vListaCarrosDetalhes.xlsx")
+ARQ_OFERTAS    = _p("Ofertas_Todos_SalesChannels.xlsx")
+ARQ_SALESFORCE = _p("Base Salesforce.xlsx")
+ARQ_SAIDA      = _p("base_consolidada_completa.xlsx")
+
+# Campos finais desejados — na ordem exata
+CAMPOS_FINAIS = [
+    "orderId",
+    "clientType",
+    "prefix",
+    "segmentName",
+    "name",
+    "cpfCnpj",
+    "dateCreated",
+    "dateLastUpdated",
+    "userId",
+    "Proprietario da Oportunidade",
+    "orderStatus",
+    "dealershipId",
+    "dealershipGroupId",
+    "monthlyKmValue",
+    "deadline",
+    "total_km",
+    "modelCode",
+    "model",
+    "color",
+    "typeOfPainting",
+    "optional",
+    "vehicleValue",
+    "publicPrice",
+    "monthlyInstallment",
+    "overrunKm",
+    "finalPlate",
+    "deadlineInfo",
+    "kickback",
+    "chassis",
+    "deliveryPlate",
+]
 
 
 # ============================================================
 # LOG
 # ============================================================
-def log(msg=""):
-    print(msg)
-
-
-def linha():
-    print("=" * 60)
+def log(msg=""): print(msg)
+def sep(): print("=" * 62)
 
 
 # ============================================================
 # UTILITÁRIOS
 # ============================================================
-def carregar_excel(caminho):
+def _ler(caminho, obrigatorio=True):
     if not os.path.exists(caminho):
-        raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
-    return pd.read_excel(caminho)
-
-
-def limpar_nomes_colunas(df, nome_df="DataFrame"):
-    df = df.copy()
+        if obrigatorio:
+            raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
+        log(f"  ⚠️  {os.path.basename(caminho)} não encontrado — pulando.")
+        return pd.DataFrame()
+    df = pd.read_excel(caminho)
     df.columns = df.columns.astype(str).str.strip()
-
-    duplicadas = df.columns[df.columns.duplicated()].tolist()
-    if duplicadas:
-        log(f"  ⚠️ {nome_df}: colunas duplicadas encontradas e removidas: {duplicadas}")
+    # Remove colunas duplicadas
+    if df.columns.duplicated().any():
+        dups = df.columns[df.columns.duplicated()].tolist()
         df = df.loc[:, ~df.columns.duplicated()]
-
+        log(f"  ⚠️  Colunas duplicadas removidas: {dups}")
+    log(f"  📄 {os.path.basename(caminho)} — {len(df)} linhas, {len(df.columns)} colunas")
     return df
 
 
-def padronizar_id_generico(x):
+def _pad(x):
+    """Normaliza IDs: 123.0 → '123'"""
     try:
-        if pd.isna(x):
-            return None
-        txt = str(x).strip()
-        if txt == "":
-            return None
-
-        # tenta converter 123.0 -> 123
-        if txt.endswith(".0"):
-            txt = txt[:-2]
-
-        try:
-            return str(int(float(txt)))
-        except Exception:
-            return txt.strip()
-    except Exception:
-        return None
+        if pd.isna(x): return None
+        s = str(x).strip()
+        if not s: return None
+        try:    return str(int(float(s)))
+        except: return s
+    except: return None
 
 
-def padronizar_coluna_id(df, coluna):
-    df = df.copy()
-    if coluna in df.columns:
-        df[coluna] = df[coluna].apply(padronizar_id_generico)
+def _pad_col(df, col):
+    if col in df.columns:
+        df[col] = df[col].apply(_pad)
     return df
 
 
-def selecionar_colunas_existentes(df, colunas):
-    return [c for c in colunas if c in df.columns]
-
-
-def auditar_chave(df, chave, nome_df):
-    if chave not in df.columns:
-        log(f"  ⚠️ {nome_df}: coluna-chave '{chave}' não existe.")
-        return
-
-    total_linhas = len(df)
-    total_unicos = df[chave].nunique(dropna=True)
-    repetidos = total_linhas - total_unicos
-
-    log(f"  🔎 {nome_df}: {total_linhas} linhas | {total_unicos} {chave} únicos | {repetidos} repetidos")
-
-
-def remover_duplicidade_por_chave(df, chave, nome_df, keep="first"):
-    df = df.copy()
-
-    if chave not in df.columns:
-        raise ValueError(f"{nome_df}: coluna '{chave}' não encontrada para remover duplicidade.")
-
+def _dedup(df, chave, nome):
     antes = len(df)
-    df = df.drop_duplicates(subset=[chave], keep=keep)
-    depois = len(df)
-
-    if antes != depois:
-        log(f"  ⚠️ {nome_df}: removidas {antes - depois} linhas duplicadas por '{chave}'")
-
+    df = df.drop_duplicates(subset=[chave], keep="first")
+    if len(df) < antes:
+        log(f"  ⚠️  {nome}: {antes - len(df)} duplicatas removidas por '{chave}'")
     return df
 
 
-def merge_seguro(
-    df_esq,
-    df_dir,
-    on,
-    how="left",
-    nome_esq="Base esquerda",
-    nome_dir="Base direita",
-    validate=None,
-    suffixes=("", "_dup")
-):
-    if on not in df_esq.columns:
-        raise ValueError(f"{nome_esq}: coluna '{on}' não encontrada.")
-    if on not in df_dir.columns:
-        raise ValueError(f"{nome_dir}: coluna '{on}' não encontrada.")
-
-    antes = len(df_esq)
-
-    df_merge = df_esq.merge(
-        df_dir,
-        on=on,
-        how=how,
-        validate=validate,
-        suffixes=suffixes
-    )
-
-    depois = len(df_merge)
-
-    log(f"  🔗 Merge {nome_esq} + {nome_dir} por '{on}'")
-    log(f"     Linhas antes: {antes} | depois: {depois}")
-
-    if depois > antes and how == "left":
-        log("  ⚠️ O merge aumentou a quantidade de linhas. Verifique a cardinalidade da base da direita.")
-
-    return df_merge
-
-
-def converter_string_para_lista(val):
+def _conv_lista(val):
     try:
-        if pd.isna(val):
-            return []
-        if isinstance(val, list):
-            return val
-        if isinstance(val, dict):
-            return [val]
-        return ast.literal_eval(val)
-    except Exception:
-        return []
+        if pd.isna(val): return []
+        if isinstance(val, list): return val
+        if isinstance(val, dict): return [val]
+        return ast.literal_eval(str(val))
+    except: return []
 
 
-def extrair_chassi_placa(lista):
-    if isinstance(lista, list) and len(lista) > 0:
+def _extrair_chassis_placa(lista):
+    """Extrai chassis e deliveryPlate do orderItemStatus[0]."""
+    if isinstance(lista, list) and lista and isinstance(lista[0], dict):
         item = lista[0]
-        if isinstance(item, dict):
-            chassi = item.get("chassis")
-            placa = item.get("deliveryPlate")
-            return pd.Series({
-                "chassis": chassi,
-                "deliveryPlate": placa
-            })
-
-    return pd.Series({
-        "chassis": None,
-        "deliveryPlate": None
-    })
+        return pd.Series({
+            "chassis":       item.get("chassis"),
+            "deliveryPlate": item.get("deliveryPlate"),
+        })
+    return pd.Series({"chassis": None, "deliveryPlate": None})
 
 
-def status_concluido_por_orderid(df_concluidos):
-    """
-    Cria uma base resumida 1 linha por orderId para marcar pedidos concluídos.
-    """
-    df = df_concluidos.copy()
-    df = limpar_nomes_colunas(df, "Concluídos")
+# ============================================================
+# ETAPA 1 — Pedidos
+# ============================================================
+def etapa_1_pedidos():
+    log("\n📋 Etapa 1 — Pedidos LM")
+    df = _ler(ARQ_PEDIDOS)
 
     if "orderId" not in df.columns:
-        raise ValueError("Lista_LM_Concluidos.xlsx não possui a coluna 'orderId'.")
+        raise ValueError("Lista_LM.xlsx não possui a coluna 'orderId'.")
 
-    df = padronizar_coluna_id(df, "orderId")
-    df = df.dropna(subset=["orderId"]).copy()
+    df = _pad_col(df, "orderId")
+    df = _pad_col(df, "dealershipId")
+    df = _pad_col(df, "dealershipGroupId")
+    df = _pad_col(df, "userId")
+    df = _dedup(df, "orderId", "Pedidos")
 
-    resumo = (
-        df.groupby("orderId", as_index=False)
-          .size()
-          .rename(columns={"size": "qtd_registros_concluidos"})
-    )
+    # Garante campos obrigatórios
+    for col in ["prefix","segmentName","name","cpfCnpj","dateCreated",
+                "dateLastUpdated","clientType","orderStatus"]:
+        if col not in df.columns:
+            df[col] = None
 
-    resumo["pedido_concluido"] = "Sim"
-    return resumo
+    # Datas
+    for col in ["dateCreated","dateLastUpdated"]:
+        df[col] = pd.to_datetime(df[col], errors="coerce")
 
-
-def preparar_consultores(df_cons):
-    """
-    Prepara a base de consultores para merge por orderId.
-    Mantém 1 linha por pedido.
-    """
-    log("\n👤 Preparando base de consultores")
-
-    df_cons = limpar_nomes_colunas(df_cons, "Consultores")
-
-    if "orderId" not in df_cons.columns:
-        raise ValueError("vListaConsultoresDetalhes.xlsx não possui a coluna 'orderId'.")
-
-    df_cons = padronizar_coluna_id(df_cons, "orderId")
-    df_cons = df_cons.dropna(subset=["orderId"]).copy()
-
-    # Colunas desejadas — traz o que existir
-    colunas_desejadas = [
-        "orderId",
-        "userId",
-        "name",
-        "email",
-        "phone",
-        "document",
-        "locationId",
-        "dealershipGroupId",
-        "isActive"
-    ]
-
-    cols = selecionar_colunas_existentes(df_cons, colunas_desejadas)
-    df_cons = df_cons[cols].copy()
-
-    # Renomeia para nomes mais claros se existirem
-    ren = {}
-    if "name" in df_cons.columns:
-        ren["name"] = "consultorNome"
-    if "email" in df_cons.columns:
-        ren["email"] = "consultorEmail"
-    if "phone" in df_cons.columns:
-        ren["phone"] = "consultorTelefone"
-    if "document" in df_cons.columns:
-        ren["document"] = "consultorDocumento"
-    if "userId" in df_cons.columns:
-        ren["userId"] = "consultorId"
-    if "isActive" in df_cons.columns:
-        ren["isActive"] = "consultorAtivo"
-
-    df_cons.rename(columns=ren, inplace=True)
-
-    auditar_chave(df_cons, "orderId", "Consultores")
-
-    # Mantém 1 linha por pedido
-    df_cons = remover_duplicidade_por_chave(df_cons, "orderId", "Consultores", keep="first")
-
-    log(f"  ✅ Consultores prontos: {len(df_cons)} linhas")
-    return df_cons
+    log(f"  ✅ {len(df)} pedidos únicos")
+    return df
 
 
-def preparar_dn(df_dn):
-    log("\n🏢 Preparando base DN")
+# ============================================================
+# ETAPA 2 — Salesforce (antes de expandir — 1:1)
+# ============================================================
+def etapa_2_salesforce(df):
+    log("\n📊 Etapa 2 — Salesforce")
+    df_sf = _ler(ARQ_SALESFORCE, obrigatorio=False)
 
-    df_dn = limpar_nomes_colunas(df_dn, "Lista_DN")
+    df["Proprietario da Oportunidade"] = None   # garante a coluna
 
-    if "dealershipGroupId" not in df_dn.columns:
-        raise ValueError("Lista_DN.xlsx não possui a coluna 'dealershipGroupId'.")
+    if df_sf.empty:
+        log("  ⚠️  Salesforce não disponível — coluna ficará vazia.")
+        return df
 
-    if "name" in df_dn.columns:
-        df_dn = df_dn.rename(columns={"name": "dealerDelivery"})
-    if "uf" in df_dn.columns:
-        df_dn = df_dn.rename(columns={"uf": "estado"})
+    col_pedido = "Nro do Pedido"
+    col_prop   = "Proprietário da oportunidade"
 
-    df_dn = padronizar_coluna_id(df_dn, "dealershipGroupId")
-    df_dn = df_dn.dropna(subset=["dealershipGroupId"]).copy()
+    if col_pedido not in df_sf.columns or col_prop not in df_sf.columns:
+        log(f"  ⚠️  Colunas necessárias não encontradas no Salesforce.")
+        return df
 
-    colunas_dn = [
-        "dealershipGroupId",
-        "dealerDelivery",
-        "referenceCode",
-        "city",
-        "estado",
-        "address",
-        "number",
-        "district",
-        "phone",
-        "cnpj"
-    ]
-
-    cols = selecionar_colunas_existentes(df_dn, colunas_dn)
-    df_dn = df_dn[cols].copy()
-
-    auditar_chave(df_dn, "dealershipGroupId", "Lista_DN")
-    df_dn = remover_duplicidade_por_chave(df_dn, "dealershipGroupId", "Lista_DN", keep="first")
-
-    log(f"  ✅ DN pronta: {len(df_dn)} linhas")
-    return df_dn
-
-
-def preparar_ofertas(df_ofertas):
-    log("\n💰 Preparando base de ofertas")
-
-    df_ofertas = limpar_nomes_colunas(df_ofertas, "Ofertas")
-
-    if "productId" not in df_ofertas.columns:
-        raise ValueError("Ofertas_Todos_SalesChannels.xlsx não possui a coluna 'productId'.")
-
-    df_ofertas["productId"] = df_ofertas["productId"].astype(str).str.strip()
-    df_ofertas = df_ofertas.dropna(subset=["productId"]).copy()
-
-    colunas_ofertas = [
-        "productId",
-        "brand",
-        "monthlyInstallment",
-        "vehicleValue",
-        "monthlyKmValue",
-        "kickback",
-        "publicPrice"
-    ]
-
-    cols = selecionar_colunas_existentes(df_ofertas, colunas_ofertas)
-    df_ofertas = df_ofertas[cols].copy()
-
-    auditar_chave(df_ofertas, "productId", "Ofertas")
-    df_ofertas = remover_duplicidade_por_chave(df_ofertas, "productId", "Ofertas", keep="first")
-
-    log(f"  ✅ Ofertas prontas: {len(df_ofertas)} linhas")
-    return df_ofertas
-
-
-def preparar_salesforce(df_sf):
-    log("\n📊 Preparando base Salesforce")
-
-    df_sf = limpar_nomes_colunas(df_sf, "Salesforce")
-
-    if "Nro do Pedido" not in df_sf.columns:
-        raise ValueError("Base Salesforce.xlsx não possui a coluna 'Nro do Pedido'.")
-
-    df_sf["Nro do Pedido"] = (
-        df_sf["Nro do Pedido"]
+    df_sf["orderId"] = (
+        df_sf[col_pedido]
         .astype(str)
         .str.replace(".", "", regex=False)
         .str.strip()
     )
+    df_sf = _pad_col(df_sf, "orderId")
+    df_sf = df_sf.dropna(subset=["orderId"])
+    df_sf = df_sf[["orderId", col_prop]].rename(
+        columns={col_prop: "Proprietario da Oportunidade"}
+    )
+    df_sf = _dedup(df_sf, "orderId", "Salesforce")
 
-    df_sf.rename(columns={"Nro do Pedido": "orderId"}, inplace=True)
-    df_sf = padronizar_coluna_id(df_sf, "orderId")
-    df_sf = df_sf.dropna(subset=["orderId"]).copy()
+    df = df.merge(df_sf, on="orderId", how="left", suffixes=("", "_sf"))
 
-    ren = {}
-    if "Proprietário da oportunidade" in df_sf.columns:
-        ren["Proprietário da oportunidade"] = "Vendedor"
-    df_sf.rename(columns=ren, inplace=True)
+    # Consolida coluna (se já existia da garantia acima)
+    if "Proprietario da Oportunidade_sf" in df.columns:
+        df["Proprietario da Oportunidade"] = df["Proprietario da Oportunidade"].fillna(
+            df["Proprietario da Oportunidade_sf"]
+        )
+        df = df.drop(columns=["Proprietario da Oportunidade_sf"])
 
-    colunas_sf = [
-        "orderId",
-        "Vendedor",
-        "Cliente da Nota Fiscal",
-        "Nome da conta",
-        "Fase",
-        "Data Assinatura Contrat",
-        "Chassi",
-        "Placa",
-        "Quantidade de veículos",
-        "Fornecedor",
-        "CPF_CNPJ",
-        "Estado/Província de cobrança",
-        "Cidade de cobrança",
-        "DataHora Agendamento",
-        "Comissionamento",
-        "Telefone",
-        "Origem da venda",
-        "Loja da Entrega",
-        "Status da Entrega",
-        "Quem Retira",
-        "Data agendamento"
-    ]
-
-    cols = selecionar_colunas_existentes(df_sf, colunas_sf)
-    df_sf = df_sf[cols].copy()
-
-    auditar_chave(df_sf, "orderId", "Salesforce")
-    df_sf = remover_duplicidade_por_chave(df_sf, "orderId", "Salesforce", keep="first")
-
-    log(f"  ✅ Salesforce pronta: {len(df_sf)} linhas")
-    return df_sf
-
-
-def preparar_carros(df_carros):
-    log("\n🚗 Preparando base de carros")
-
-    df_carros = limpar_nomes_colunas(df_carros, "Carros")
-
-    colunas_obrigatorias = ["orderId", "orderItemId"]
-    for c in colunas_obrigatorias:
-        if c not in df_carros.columns:
-            raise ValueError(f"vListaCarrosDetalhes.xlsx não possui a coluna obrigatória '{c}'.")
-
-    df_carros = padronizar_coluna_id(df_carros, "orderId")
-    df_carros = padronizar_coluna_id(df_carros, "orderItemId")
-
-    if "productId" in df_carros.columns:
-        df_carros["productId"] = df_carros["productId"].astype(str).str.strip()
-
-    # remove duplicidade natural da base
-    antes = len(df_carros)
-    df_carros = df_carros.drop_duplicates(subset=["orderId", "orderItemId"], keep="first")
-    depois = len(df_carros)
-    if antes != depois:
-        log(f"  ⚠️ Carros: removidas {antes - depois} linhas duplicadas por orderId + orderItemId")
-
-    # trata orderItemStatus
-    if "orderItemStatus" in df_carros.columns:
-        df_carros["orderItemStatus"] = df_carros["orderItemStatus"].apply(converter_string_para_lista)
-        df_carros[["chassis", "deliveryPlate"]] = df_carros["orderItemStatus"].apply(extrair_chassi_placa)
-
-    # numéricos
-    if "monthlyKmValue" in df_carros.columns:
-        df_carros["monthlyKmValue"] = pd.to_numeric(df_carros["monthlyKmValue"], errors="coerce").fillna(0)
-
-    if "deadline" in df_carros.columns:
-        df_carros["deadline"] = pd.to_numeric(df_carros["deadline"], errors="coerce").fillna(0)
-
-    if "monthlyKmValue" in df_carros.columns and "deadline" in df_carros.columns:
-        df_carros["total_km"] = df_carros["monthlyKmValue"] * df_carros["deadline"]
-
-    log(f"  ✅ Carros prontos: {len(df_carros)} linhas")
-    return df_carros
+    encontrados = df["Proprietario da Oportunidade"].notna().sum()
+    log(f"  ✅ {encontrados}/{len(df)} proprietários encontrados")
+    return df
 
 
 # ============================================================
-# ETAPAS
+# ETAPA 3 — Carros + Ofertas (EXPANDE para 1 linha por carro)
 # ============================================================
-def etapa_1_base_principal():
-    log("\n📋 Etapa 1 — Base principal de pedidos")
+def etapa_3_carros_e_ofertas(df):
+    log("\n🚗 Etapa 3 — Carros + Ofertas (expande para 1 linha/carro)")
 
-    df_pedidos = carregar_excel(ARQ_PEDIDOS)
-    df_pedidos = limpar_nomes_colunas(df_pedidos, "Pedidos")
+    # ── Carros ───────────────────────────────────────────────
+    df_c = _ler(ARQ_CARROS)
 
-    if "orderId" not in df_pedidos.columns:
-        raise ValueError("Lista_LM.xlsx não possui a coluna 'orderId'.")
+    for col in ["orderId","orderItemId"]:
+        if col not in df_c.columns:
+            raise ValueError(f"vListaCarrosDetalhes.xlsx não possui '{col}'.")
 
-    df_pedidos = padronizar_coluna_id(df_pedidos, "orderId")
+    df_c = _pad_col(df_c, "orderId")
+    df_c = _pad_col(df_c, "orderItemId")
 
-    if "dealershipGroupId" in df_pedidos.columns:
-        df_pedidos = padronizar_coluna_id(df_pedidos, "dealershipGroupId")
+    if "productId" in df_c.columns:
+        df_c["productId"] = df_c["productId"].astype(str).str.strip()
 
-    auditar_chave(df_pedidos, "orderId", "Pedidos")
-    df_pedidos = remover_duplicidade_por_chave(df_pedidos, "orderId", "Pedidos", keep="first")
+    # Remove duplicatas por orderId + orderItemId
+    antes = len(df_c)
+    df_c  = df_c.drop_duplicates(subset=["orderId","orderItemId"], keep="first")
+    if len(df_c) < antes:
+        log(f"  ⚠️  Carros: {antes - len(df_c)} duplicatas removidas")
 
-    if "clientType" in df_pedidos.columns:
-        df_pedidos["clientType"] = df_pedidos["clientType"].map({1: "Física", 0: "Jurídica"}).fillna(df_pedidos["clientType"])
+    # Numéricos
+    for col in ["monthlyKmValue","deadline","overrunKm","finalPlate"]:
+        if col in df_c.columns:
+            df_c[col] = pd.to_numeric(df_c[col], errors="coerce")
 
-    if "totalOrder" in df_pedidos.columns:
-        df_pedidos["totalOrder"] = pd.to_numeric(df_pedidos["totalOrder"], errors="coerce").fillna(0)
-        df_pedidos["comissao"] = df_pedidos["totalOrder"] * 0.08
+    # total_km
+    if "monthlyKmValue" in df_c.columns and "deadline" in df_c.columns:
+        df_c["total_km"] = df_c["monthlyKmValue"] * df_c["deadline"]
+    else:
+        df_c["total_km"] = None
 
-    log(f"  ✅ Pedidos prontos: {len(df_pedidos)} linhas")
-    return df_pedidos
+    # Extrai chassis e deliveryPlate do orderItemStatus
+    if "orderItemStatus" in df_c.columns:
+        parsed = df_c["orderItemStatus"].apply(_conv_lista)
+        df_c[["chassis","deliveryPlate"]] = parsed.apply(_extrair_chassis_placa)
+    else:
+        df_c["chassis"]       = None
+        df_c["deliveryPlate"] = None
 
+    # Garante campos do carro
+    for col in ["modelCode","model","color","typeOfPainting","optional","finalPlate"]:
+        if col not in df_c.columns:
+            df_c[col] = None
 
-def etapa_2_concluidos(df):
-    log("\n✅ Etapa 2 — Concluídos")
+    # ── Ofertas ───────────────────────────────────────────────
+    df_of = _ler(ARQ_OFERTAS, obrigatorio=False)
+    if not df_of.empty and "productId" in df_of.columns and "productId" in df_c.columns:
+        df_of["productId"] = df_of["productId"].astype(str).str.strip()
+        df_of = _dedup(df_of, "productId", "Ofertas")
 
-    if not os.path.exists(ARQ_CONCLUIDOS):
-        log("  ⚠️ Arquivo de concluídos não encontrado. Etapa ignorada.")
-        df["pedido_concluido"] = "Não"
-        df["qtd_registros_concluidos"] = 0
-        return df
+        COLS_OFERTA = [
+            "productId","vehicleValue","publicPrice","monthlyInstallment",
+            "overrunKm","deadlineInfo","kickback",
+        ]
+        cols_ok = [c for c in COLS_OFERTA if c in df_of.columns]
+        df_of   = df_of[cols_ok]
 
-    df_concl = carregar_excel(ARQ_CONCLUIDOS)
-    resumo = status_concluido_por_orderid(df_concl)
+        # Numéricos das ofertas
+        for col in ["vehicleValue","publicPrice","monthlyInstallment","overrunKm","kickback"]:
+            if col in df_of.columns:
+                df_of[col] = pd.to_numeric(df_of[col], errors="coerce")
 
-    auditar_chave(resumo, "orderId", "Resumo Concluídos")
+        antes = len(df_c)
+        df_c  = df_c.merge(df_of, on="productId", how="left",
+                            suffixes=("","_oferta"))
 
-    df = merge_seguro(
-        df,
-        resumo,
-        on="orderId",
-        how="left",
-        nome_esq="Pedidos",
-        nome_dir="Concluídos",
-        validate="one_to_one"
-    )
+        # Se overrunKm existia nos dois, usa a da oferta
+        if "overrunKm_oferta" in df_c.columns:
+            df_c["overrunKm"] = df_c["overrunKm"].fillna(df_c["overrunKm_oferta"])
+            df_c = df_c.drop(columns=["overrunKm_oferta"])
 
-    if "pedido_concluido" in df.columns:
-        df["pedido_concluido"] = df["pedido_concluido"].fillna("Não")
+        log(f"  🔗 Carros × Ofertas: {antes} → {len(df_c)} linhas")
 
-    if "qtd_registros_concluidos" in df.columns:
-        df["qtd_registros_concluidos"] = df["qtd_registros_concluidos"].fillna(0)
+        # Garante campos de oferta
+        for col in ["vehicleValue","publicPrice","monthlyInstallment","deadlineInfo","kickback"]:
+            if col not in df_c.columns:
+                df_c[col] = None
+    else:
+        for col in ["vehicleValue","publicPrice","monthlyInstallment","deadlineInfo","kickback"]:
+            df_c[col] = None
 
-    log("  ✅ Concluídos incorporados")
+    # ── Merge principal (expande) ─────────────────────────────
+    antes = len(df)
+    df = df.merge(df_c, on="orderId", how="left",
+                  validate="one_to_many", suffixes=("","_carro"))
+    log(f"  🔗 Pedidos × Carros: {antes} → {len(df)} linhas")
+
+    # Remove colunas _carro duplicadas desnecessárias
+    colunas_carro = [c for c in df.columns if c.endswith("_carro")]
+    df = df.drop(columns=colunas_carro)
+
+    log(f"  ✅ {len(df)} linhas após expansão")
     return df
 
 
-def etapa_3_consultores(df):
-    log("\n👤 Etapa 3 — Consultores")
+# ============================================================
+# ETAPA 4 — Seleciona e exporta apenas os campos finais
+# ============================================================
+def etapa_4_exportar(df):
+    log("\n📐 Etapa 4 — Seleção dos campos finais")
 
-    if not os.path.exists(ARQ_CONSULTORES):
-        log("  ⚠️ Arquivo de consultores não encontrado. Etapa ignorada.")
-        return df
+    # Garante que todos os campos existem
+    for col in CAMPOS_FINAIS:
+        if col not in df.columns:
+            df[col] = None
+            log(f"  ⚠️  Campo '{col}' não encontrado — preenchido com None")
 
-    df_cons = carregar_excel(ARQ_CONSULTORES)
-    df_cons = preparar_consultores(df_cons)
+    # Seleciona na ordem exata
+    df_final = df[CAMPOS_FINAIS].copy()
 
-    # Se o df principal é 1 linha por orderId, então deve ser one_to_one
-    df = merge_seguro(
-        df,
-        df_cons,
-        on="orderId",
-        how="left",
-        nome_esq="Pedidos",
-        nome_dir="Consultores",
-        validate="one_to_one"
-    )
+    # Formata datas
+    for col in ["dateCreated","dateLastUpdated"]:
+        if col in df_final.columns:
+            df_final[col] = pd.to_datetime(df_final[col], errors="coerce").dt.strftime("%d/%m/%Y %H:%M").fillna("")
 
-    log("  ✅ Consultores incorporados")
-    return df
+    log(f"  ✅ {len(df_final)} linhas | {len(df_final.columns)} colunas")
 
-
-def etapa_4_dn(df):
-    log("\n🏢 Etapa 4 — DN / Concessionária")
-
-    if not os.path.exists(ARQ_DN):
-        log("  ⚠️ Arquivo Lista_DN não encontrado. Etapa ignorada.")
-        return df
-
-    if "dealershipGroupId" not in df.columns:
-        log("  ⚠️ Base principal não possui 'dealershipGroupId'. Etapa ignorada.")
-        return df
-
-    df_dn = carregar_excel(ARQ_DN)
-    df_dn = preparar_dn(df_dn)
-
-    df = merge_seguro(
-        df,
-        df_dn,
-        on="dealershipGroupId",
-        how="left",
-        nome_esq="Pedidos",
-        nome_dir="DN",
-        validate="many_to_one"
-    )
-
-    log("  ✅ DN incorporado")
-    return df
-
-
-def etapa_5_carros_e_ofertas(df):
-    log("\n🚗 Etapa 5 — Carros + Ofertas")
-
-    if not os.path.exists(ARQ_CARROS):
-        log("  ⚠️ Arquivo de carros não encontrado. Etapa ignorada.")
-        return df
-
-    df_carros = carregar_excel(ARQ_CARROS)
-    df_carros = preparar_carros(df_carros)
-
-    if os.path.exists(ARQ_OFERTAS):
-        df_ofertas = carregar_excel(ARQ_OFERTAS)
-        df_ofertas = preparar_ofertas(df_ofertas)
-
-        if "productId" in df_carros.columns and "productId" in df_ofertas.columns:
-            df_carros = merge_seguro(
-                df_carros,
-                df_ofertas,
-                on="productId",
-                how="left",
-                nome_esq="Carros",
-                nome_dir="Ofertas",
-                validate="many_to_one"
-            )
-
-    # Aqui SIM a base pode expandir para 1 linha por carro
-    df = merge_seguro(
-        df,
-        df_carros,
-        on="orderId",
-        how="left",
-        nome_esq="Base principal",
-        nome_dir="Carros",
-        validate="one_to_many",
-        suffixes=("", "_carro")
-    )
-
-    log("  ✅ Carros e ofertas incorporados")
-    return df
-
-
-def etapa_6_salesforce(df):
-    log("\n📊 Etapa 6 — Salesforce")
-
-    if not os.path.exists(ARQ_SALESFORCE):
-        log("  ⚠️ Arquivo Base Salesforce não encontrado. Etapa ignorada.")
-        return df
-
-    df_sf = carregar_excel(ARQ_SALESFORCE)
-    df_sf = preparar_salesforce(df_sf)
-
-    # Como após a etapa de carros pode haver várias linhas por orderId, agora é many_to_one
-    df = merge_seguro(
-        df,
-        df_sf,
-        on="orderId",
-        how="left",
-        nome_esq="Base consolidada",
-        nome_dir="Salesforce",
-        validate="many_to_one"
-    )
-
-    if "comissao" in df.columns:
-        df["comissao_vendedor"] = pd.to_numeric(df["comissao"], errors="coerce").fillna(0) * 0.025
-
-    log("  ✅ Salesforce incorporado")
-    return df
-
-
-def etapa_7_ajustes_finais(df):
-    log("\n🧹 Etapa 7 — Ajustes finais")
-
-    # remove colunas duplicadas, se aparecerem após merges
-    df = limpar_nomes_colunas(df, "Base final")
-
-    # evita duplicidade de nome causada por merges
-    colunas_para_remover = [c for c in df.columns if c.endswith("_dup")]
-    if colunas_para_remover:
-        df.drop(columns=colunas_para_remover, inplace=True)
-        log(f"  ⚠️ Removidas colunas auxiliares duplicadas: {colunas_para_remover}")
-
-    # tenta organizar algumas colunas principais no começo
-    colunas_prioridade = [
-        "orderId",
-        "orderItemId",
-        "pedido_concluido",
-        "qtd_registros_concluidos",
-        "consultorNome",
-        "consultorEmail",
-        "dealerDelivery",
-        "referenceCode",
-        "clientType",
-        "totalOrder",
-        "comissao",
-        "comissao_vendedor",
-        "productId",
-        "brand",
-        "monthlyInstallment",
-        "vehicleValue",
-        "publicPrice",
-        "monthlyKmValue",
-        "deadline",
-        "total_km",
-        "chassis",
-        "deliveryPlate",
-        "Vendedor",
-        "Origem da venda",
-        "Loja da Entrega",
-        "Status da Entrega"
-    ]
-
-    colunas_existentes = [c for c in colunas_prioridade if c in df.columns]
-    colunas_restantes = [c for c in df.columns if c not in colunas_existentes]
-    df = df[colunas_existentes + colunas_restantes]
-
-    log(f"  ✅ Base final ajustada: {len(df)} linhas | {len(df.columns)} colunas")
-    return df
-
-
-def exportar(df):
-    log("\n💾 Exportando arquivo final")
-    df.to_excel(ARQ_SAIDA, index=False)
-    log(f"  ✅ Arquivo gerado com sucesso: {ARQ_SAIDA}")
+    log(f"\n💾 Exportando → {ARQ_SAIDA}")
+    df_final.to_excel(ARQ_SAIDA, index=False)
+    log(f"  ✅ Arquivo gerado com sucesso")
+    return df_final
 
 
 # ============================================================
 # MAIN
 # ============================================================
 def main():
-    linha()
+    sep()
     log("   CONSOLIDADOR BASE LM — CARRERA SIGNATURE")
     log(f"   {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-    linha()
+    sep()
 
     try:
-        # 1) Base principal por pedido
-        df = etapa_1_base_principal()
+        df = etapa_1_pedidos()
+        df = etapa_2_salesforce(df)       # 1 linha/pedido — antes de expandir
+        df = etapa_3_carros_e_ofertas(df) # expande → 1 linha/carro
+        df = etapa_4_exportar(df)
 
-        # 2) Enriquecimentos ainda em 1 linha por pedido
-        df = etapa_2_concluidos(df)
-        df = etapa_3_consultores(df)
-        df = etapa_4_dn(df)
+        sep()
+        log("✅ Consolidação finalizada!")
+        log(f"📦 Total de linhas : {len(df)}")
+        log(f"🧾 Total de colunas: {len(df.columns)}")
+        log(f"📁 Arquivo         : {ARQ_SAIDA}")
+        sep()
 
-        # 3) Expansão intencional para 1 linha por carro
-        df = etapa_5_carros_e_ofertas(df)
-
-        # 4) Enriquecimento externo
-        df = etapa_6_salesforce(df)
-
-        # 5) Ajustes finais
-        df = etapa_7_ajustes_finais(df)
-
-        # 6) Exportação
-        exportar(df)
-
-        linha()
-        log("✅ Processo finalizado com sucesso")
-        log(f"📦 Total de linhas finais: {len(df)}")
-        log(f"🧾 Total de colunas finais: {len(df.columns)}")
-        linha()
+        try:
+            from plyer import notification
+            notification.notify(
+                title="Consolidador LM ✅",
+                message=f"{len(df)} linhas geradas em base_consolidada_completa.xlsx",
+                timeout=5,
+            )
+        except Exception:
+            pass
 
     except Exception as e:
-        log("\n❌ Erro inesperado:")
-        log(str(e))
-        log("\nTraceback completo:")
+        log(f"\n❌ Erro: {e}")
         traceback.print_exc()
         sys.exit(1)
 
