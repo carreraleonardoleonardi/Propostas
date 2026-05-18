@@ -831,14 +831,36 @@ def render():
         }
 
         # ── KPIs (sempre sobre df_gv completo, data só afeta Entregues) ──
-        total     = len(df_gv)
-        livres    = len(df_gv[df_gv["status"] == "Livre"])
-        trans_l   = len(df_gv[df_gv["status"] == "Trânsito Livre"])
-        trans_v   = len(df_gv[df_gv["status"] == "Trânsito Vendido"])
-        ag_atr = len(df_gv[df_gv["status"] == "Aguardando Atribuição"])
-        ag_ag     = len(df_gv[df_gv["status"] == "Aguardando Agendamento"])
-        agend     = len(df_gv[df_gv["status"] == "Agendado"])
-        avar      = len(df_gv[df_gv["status"] == "Avariado"])
+# ── KPIs sobre base filtrada pelos selectbox ──
+        _dv_kpi = df_gv.copy()
+        if st.session_state.get("p_sta","Todos") != "Todos":
+            _dv_kpi = _dv_kpi[_dv_kpi["status"]     == st.session_state["p_sta"]]
+        if st.session_state.get("p_fab","Todos") != "Todos":
+            _dv_kpi = _dv_kpi[_dv_kpi["fabricante"] == st.session_state["p_fab"]]
+        if st.session_state.get("p_loc","Todos") != "Todos":
+            _dv_kpi = _dv_kpi[_dv_kpi["locadora"]   == st.session_state["p_loc"]]
+        if st.session_state.get("p_con","Todos") != "Todos":
+            _dv_kpi = _dv_kpi[_dv_kpi["consultor"]  == st.session_state["p_con"]]
+
+        # ── KPIs sobre base filtrada pelos selectbox ──
+        total   = len(_dv_kpi)
+        livres  = len(_dv_kpi[_dv_kpi["status"] == "Livre"])
+        trans_l = len(_dv_kpi[_dv_kpi["status"] == "Trânsito Livre"])
+        trans_v = len(_dv_kpi[_dv_kpi["status"] == "Trânsito Vendido"])
+        ag_atr  = len(_dv_kpi[_dv_kpi["status"] == "Aguardando Atribuição"])
+        ag_ag   = len(_dv_kpi[_dv_kpi["status"] == "Aguardando Agendamento"])
+        agend   = len(_dv_kpi[_dv_kpi["status"] == "Agendado"])
+        avar    = len(_dv_kpi[_dv_kpi["status"] == "Avariado"])
+        entr    = len(_dv_kpi[
+            (_dv_kpi["status"] == "Entregue") &
+            (_dv_kpi["data_entrega"].astype(str).isin(datas_periodo_est))
+        ])
+        ach = _dv_kpi[_dv_kpi["status"] == "Agendado"].copy()
+        if not ach.empty:
+            ach["_f"] = ach.apply(farol_agendamento, axis=1)
+            atras = len(ach[ach["_f"] == "🔴"])
+        else:
+            atras = 0
 
         # Entregues no período selecionado
         df_entr_periodo = df_gv[
@@ -918,11 +940,17 @@ def render():
             cons = ["Todos"] + sorted(df_gv["consultor"].dropna().unique()) if "consultor" in df_gv.columns else ["Todos"]
             flt_con = st.selectbox("Consultor", cons, key="p_con")
 
-        b1, b2, b3 = st.columns(3)
-        with b1: s_ch = st.text_input("🔑 Chassi",    placeholder="Chassi", key="b_ch")
-        with b2: s_pl = st.text_input("🪪 Placa",     placeholder="Placa",  key="b_pl")
-        with b3: s_pe = st.text_input("📄 Nº Pedido", placeholder="Nº Pedido",    key="b_pe")
-
+        b1, b2, b3, b4 = st.columns([3, 3, 3, 1])
+        with b1: s_ch = st.text_input("🔑 Chassi",    placeholder="Chassi",    key="b_ch")
+        with b2: s_pl = st.text_input("🪪 Placa",     placeholder="Placa",     key="b_pl")
+        with b3: s_pe = st.text_input("📄 Nº Pedido", placeholder="Nº Pedido", key="b_pe")
+        with b4:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            if st.button("🧹", use_container_width=True, key="gv_limpar", help="Limpar filtros"):
+                for k in ["p_sta","p_fab","p_loc","p_con","b_ch","b_pl","b_pe","gv_sel"]:
+                    if k in st.session_state: del st.session_state[k]
+                st.rerun()
+                
         dv = df_gv.copy()
         if flt_sta != "Todos": dv = dv[dv["status"]     == flt_sta]
         if flt_fab != "Todos": dv = dv[dv["fabricante"] == flt_fab]
