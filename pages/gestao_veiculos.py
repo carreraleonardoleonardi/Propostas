@@ -940,14 +940,15 @@ def render():
             cons = ["Todos"] + sorted(df_gv["consultor"].dropna().unique()) if "consultor" in df_gv.columns else ["Todos"]
             flt_con = st.selectbox("Consultor", cons, key="p_con")
 
-        b1, b2, b3, b4 = st.columns([3, 3, 3, 1])
+        b1, b2, b3, b4,b5 = st.columns([3, 3, 3, 3,3])
         with b1: s_ch = st.text_input("🔑 Chassi",    placeholder="Chassi",    key="b_ch")
         with b2: s_pl = st.text_input("🪪 Placa",     placeholder="Placa",     key="b_pl")
         with b3: s_pe = st.text_input("📄 Nº Pedido", placeholder="Nº Pedido", key="b_pe")
-        with b4:
+        with b4: s_cl = st.text_input("👤 Cliente",    placeholder="Cliente",    key="b_cl")
+        with b5:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
             if st.button("🧹", use_container_width=True, key="gv_limpar", help="Limpar filtros"):
-                for k in ["p_sta","p_fab","p_loc","p_con","b_ch","b_pl","b_pe","gv_sel"]:
+                for k in ["p_sta","p_fab","p_loc","p_con","b_ch","b_pl","b_pe","gv_sel", "b_cl"]:
                     if k in st.session_state: del st.session_state[k]
                 st.rerun()
                 
@@ -959,7 +960,7 @@ def render():
         if s_ch: dv = dv[dv["chassi"].astype(str).str.lower().str.contains(s_ch.lower(), na=False)]
         if s_pl: dv = dv[dv["placa"].astype(str).str.lower().str.contains(s_pl.lower(),  na=False)]
         if s_pe: dv = dv[dv["pedido"].astype(str).str.lower().str.contains(s_pe.lower(), na=False)]
-
+        if s_cl: dv = dv[dv["cliente"].astype(str).str.lower().str.contains(s_cl.lower(), na=False)]
         st.markdown(
             f"<p style='color:#94a3b8;font-size:13px;margin:6px 0 10px'>"
             f"<b style='color:{AZUL}'>{len(dv)}</b> veículo(s)</p>",
