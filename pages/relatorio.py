@@ -482,9 +482,12 @@ def _gravar_manual(dados: dict) -> bool:
 # RENDER
 # ══════════════════════════════════════════════════════════════════════════════
 def render():
-    autenticado = st.session_state.get("auth_tipo","") == "Staff"
-    pode_editar = autenticado and st.session_state.get("auth_nome","") not in {
+    autenticado  = st.session_state.get("auth_tipo","") == "Staff"
+    is_parceiro  = st.session_state.get("auth_tipo","") == "Parceiro"
+    pode_editar  = autenticado and st.session_state.get("auth_nome","") not in {
         "Andrea Bettega Pereira da Costa","Raymond Jose Duque Bello"}
+
+    LOCADORA_PARCEIRO = "GM Fleet"
 
     st.markdown(CSS, unsafe_allow_html=True)
 
@@ -513,9 +516,19 @@ def render():
         st.warning("⚠️ Base de dados não encontrada. Verifique `Dados/base_consolidada_completa.xlsx`.")
         return
 
+    # Parceiro vê apenas GM Fleet
+    if is_parceiro and "Locadora" in df_all.columns:
+        df_all    = df_all[df_all["Locadora"] == LOCADORA_PARCEIRO].copy()
+    if is_parceiro and not df_estoque.empty and "locadora" in df_estoque.columns:
+        df_estoque = df_estoque[df_estoque["locadora"] == LOCADORA_PARCEIRO].copy()
+
     # ── Abas ──────────────────────────────────────────────────────────────────
-    tabs = st.tabs(["📋 Dashboard","📄 Pedidos","📤 Dados","➕ Cadastro Manual"] if pode_editar
-                   else ["📋 Dashboard","📄 Pedidos"])
+    if pode_editar:
+        tabs = st.tabs(["📋 Dashboard","📄 Pedidos","📤 Dados","➕ Cadastro Manual"])
+    elif is_parceiro:
+        tabs = st.tabs(["📋 Dashboard","📄 Pedidos","➕ Cadastro GM Fleet"])
+    else:
+        tabs = st.tabs(["📋 Dashboard","📄 Pedidos"])
 
     # ══════════════════════════════════════════════════════════════════════════
     # ABA DASHBOARD
@@ -536,8 +549,12 @@ def render():
             vends  = ["Todos"] + sorted([x for x in df_all["Venda"].dropna().astype(str).unique() if x])
             flt_ven = st.selectbox("Consultor", vends, key="d_ven")
         with fe:
-            locs   = ["Todas"] + sorted([x for x in df_all["Locadora"].dropna().astype(str).unique() if x])
-            flt_loc = st.selectbox("Locadora", locs, key="d_loc")
+            if is_parceiro:
+                flt_loc = LOCADORA_PARCEIRO
+                st.markdown(f"<p style='font-size:12px;color:{CINZA};margin-top:28px'>🏢 {LOCADORA_PARCEIRO}</p>", unsafe_allow_html=True)
+            else:
+                locs   = ["Todas"] + sorted([x for x in df_all["Locadora"].dropna().astype(str).unique() if x])
+                flt_loc = st.selectbox("Locadora", locs, key="d_loc")
 
         bc2_col, _ = st.columns([1,7])
         with bc2_col:
@@ -727,7 +744,12 @@ def render():
         st.markdown('<div class="filtros-wrap">', unsafe_allow_html=True)
         pf1,pf2,pf3,pf4 = st.columns(4)
         with pf1: flt_sta2 = st.selectbox("Status", ["Todos"]+sorted([x for x in df_all["Status"].dropna().astype(str).unique() if x]), key="p_sta2")
-        with pf2: flt_loc2 = st.selectbox("Locadora",["Todas"]+sorted([x for x in df_all["Locadora"].dropna().astype(str).unique() if x]), key="p_loc2")
+        with pf2:
+            if is_parceiro:
+                flt_loc2 = LOCADORA_PARCEIRO
+                st.markdown(f"<p style='font-size:12px;color:{CINZA};margin-top:28px'>🏢 {LOCADORA_PARCEIRO}</p>", unsafe_allow_html=True)
+            else:
+                flt_loc2 = st.selectbox("Locadora",["Todas"]+sorted([x for x in df_all["Locadora"].dropna().astype(str).unique() if x]), key="p_loc2")
         with pf3: flt_ven2 = st.selectbox("Consultor",["Todos"]+sorted([x for x in df_all["Venda"].dropna().astype(str).unique() if x]), key="p_ven2")
         with pf4: s_busca  = st.text_input("🔎 Pedido / Chassi / Cliente", key="p_busca2", placeholder="Buscar...")
         pb2_col, _ = st.columns([1,7])
@@ -826,8 +848,109 @@ def render():
                     st.warning(f"⚠️ {nome}: não encontrado")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # ABA CADASTRO MANUAL
+    # ABA CADASTRO MANUAL (Staff) / ABA CADASTRO GM FLEET (Parceiro)
     # ══════════════════════════════════════════════════════════════════════════
+    _idx_cad = 3 if pode_editar else (2 if is_parceiro else None)
+
+    if is_parceiro and _idx_cad is not None:
+        with tabs[_idx_cad]:
+            st.markdown('<div class="secao-titulo">➕ Cadastro GM Fleet</div>', unsafe_allow_html=True)
+            st.caption("Cadastre pedidos GM Fleet. Apenas registros com Locadora = GM Fleet são exibidos.")
+
+            df_sf2 = _ler_salesforce()
+            SEGS_GMF = ["GM Fleet"]
+            STS    = ["Em locação","Contrato assinado","Pedido concluído","Cancelado","Aguardando","Outro"]
+
+            with st.form("form_manual_gmf"):
+                st.markdown("**📋 Identificação**")
+                m1,m2,m3 = st.columns(3)
+                with m1:
+                    st.markdown(f"<p style='font-size:12px;font-weight:700;color:{CINZA}'>Locadora</p>"
+                                f"<p style='font-size:14px;font-weight:800;color:{AZUL}'>GM Fleet</p>",
+                                unsafe_allow_html=True)
+                    seg=st.selectbox("Segmento *", SEGS_GMF)
+                with m2: pedido=st.text_input("Nº Pedido *"); cliente=st.text_input("Cliente *")
+                with m3: doc=st.text_input("CPF/CNPJ *"); status=st.selectbox("Status",STS)
+
+                st.markdown("**🚗 Veículo**")
+                v1,v2,v3 = st.columns(3)
+                with v1: modelo=st.text_input("Modelo"); cor=st.text_input("Cor")
+                with v2: chassi=st.text_input("Chassi"); placa=st.text_input("Placa")
+                with v3: marca=st.text_input("Marca"); opcional=st.text_input("Opcional")
+
+                st.markdown("**📅 Contrato**")
+                c1,c2,c3,c4 = st.columns(4)
+                with c1: data_ass=st.date_input("Data Assinatura",value=None,format="DD/MM/YYYY")
+                with c2: plano=st.number_input("Plano (meses)",min_value=0,step=6,value=0)
+                with c3: km=st.number_input("KM Mensal",min_value=0,step=500,value=0)
+                with c4: mensalidade=st.number_input("Mensalidade (R$)",min_value=0.0,step=100.0,value=0.0)
+
+                st.markdown("**📍 Local**")
+                l1,l2,l3 = st.columns(3)
+                with l1: lv=st.text_input("Local de Venda")
+                with l2: uf=st.text_input("UF")
+                with l3: city=st.text_input("Cidade")
+
+                cons_prev = _lookup_sf(df_sf2, pedido) if pedido else "—"
+                if pedido:
+                    cor_c = "#22c55e" if cons_prev != "Não encontrado" else "#f59e0b"
+                    st.markdown(f"<p style='font-size:13px;color:{cor_c}'>👤 Consultor: <b>{cons_prev}</b></p>", unsafe_allow_html=True)
+
+                enviado_gmf = st.form_submit_button("💾 Cadastrar", use_container_width=True, type="primary")
+
+            if enviado_gmf:
+                if not pedido or not cliente or not doc:
+                    st.error("Nº Pedido, Cliente e CPF/CNPJ são obrigatórios.")
+                else:
+                    agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                    dados = {"Locadora":"GM Fleet","Segmento":seg,"Pedido":pedido,"Nome":cliente,
+                             "Documento":doc,"Tipo":_tipo(doc),"Status":status,
+                             "Modelo Oficial":modelo,"Cor":cor,"Chassi":chassi,"Placa":placa,
+                             "Marca":marca,"Opcional":opcional,
+                             "Data Assinatura":data_ass.strftime("%d/%m/%Y") if data_ass else "",
+                             "Período":str(plano),"Km":str(km),"Mensalidade":str(mensalidade),
+                             "Local de Venda":lv,"UF":uf,"City":city,
+                             "Venda":cons_prev,"Data de Inclusão":agora,"Origem venda":"Manual GM Fleet"}
+                    pg = st.progress(0,"Salvando..."); pg.progress(70,"Gravando...")
+                    if _gravar_manual(dados):
+                        pg.progress(100,"Concluído!")
+                        _ler_manuais.clear(); st.cache_data.clear()
+                        st.success(f"✅ Pedido **{pedido}** cadastrado!"); st.balloons()
+
+            st.divider()
+            st.markdown('<div class="secao-titulo">📋 Pedidos GM Fleet Cadastrados</div>', unsafe_allow_html=True)
+            df_man_gmf = _ler_manuais()
+            if "Locadora" in df_man_gmf.columns:
+                df_man_gmf = df_man_gmf[df_man_gmf["Locadora"] == "GM Fleet"]
+            if df_man_gmf.empty:
+                st.info("Nenhum pedido GM Fleet cadastrado ainda.")
+            else:
+                # Edição inline
+                st.markdown(f"<p style='color:{CINZA};font-size:13px'><b style='color:{AZUL}'>{len(df_man_gmf)}</b> pedido(s)</p>", unsafe_allow_html=True)
+                df_edit = st.data_editor(
+                    df_man_gmf.reset_index(drop=True),
+                    use_container_width=True,
+                    height=400,
+                    num_rows="dynamic",
+                    key="gmf_editor"
+                )
+                if st.button("💾 Salvar alterações", type="primary", key="gmf_save"):
+                    try:
+                        df_all_man = _ler_manuais() if os.path.exists(ARQ_MAN) else pd.DataFrame(columns=COLUNAS_REL)
+                        # Remove os registros GM Fleet e substitui pelo editado
+                        if "Locadora" in df_all_man.columns:
+                            df_outros = df_all_man[df_all_man["Locadora"] != "GM Fleet"]
+                        else:
+                            df_outros = df_all_man
+                        df_final = pd.concat([df_outros, df_edit], ignore_index=True)
+                        df_final = _garantir(df_final, COLUNAS_REL)
+                        df_final.to_excel(ARQ_MAN, index=False)
+                        _ler_manuais.clear(); st.cache_data.clear()
+                        st.success("✅ Alterações salvas!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
+
     if pode_editar:
         with tabs[3]:
             st.markdown('<div class="secao-titulo">➕ Cadastro Manual de Pedidos</div>', unsafe_allow_html=True)

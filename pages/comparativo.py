@@ -3,7 +3,7 @@ import pandas as pd
 
 from data import BASES, carregar_base, _is_disponivel
 from utils import formatar_valor_brl, valor_para_float
-
+from autenticacao import aplicar_filtro_usuario
 
 def render():
     st.title("🔍 Comparativo de Planos")

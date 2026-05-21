@@ -36,9 +36,38 @@ ABAS_POR_TIPO = {
                    "👥 Usuários", "🛠️ Gerenciamento"],
     "Vendas":     ["🚗 Propostas", "🎴 Card",
                    "🔍 Comparativo", "🚘 Estoque"],
-    "Parceiro":   ["🚗 Propostas", "🎴 Card"],
+    "Parceiro":   ["🎴 Card", "🚘 Estoque", "📈 Performance"],
     "Entregador": ["📅 Agenda de Entregas", "🚙 Controle Usados"],
 }
+
+
+# =========================================================
+# FILTRO DE VISIBILIDADE
+# =========================================================
+
+def aplicar_filtro_usuario(
+    df,
+    coluna_frente: str = "Frente"
+):
+    """
+    Filtra os dados conforme o usuário logado.
+    Parceiro: vê apenas sua própria frente.
+    Staff/Vendas: vê tudo.
+    """
+    import pandas as pd
+    if df.empty:
+        return df
+    tipo_usuario   = st.session_state.get("auth_tipo", "")
+    frente_usuario = st.session_state.get("auth_frente", "")
+    if tipo_usuario == "Parceiro":
+        if coluna_frente not in df.columns:
+            return df
+        return df[
+            df[coluna_frente]
+            .astype(str).str.strip().str.upper()
+            == frente_usuario.strip().upper()
+        ]
+    return df
 
 
 # ── Hash ─────────────────────────────────────────────────
