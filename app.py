@@ -8,6 +8,9 @@ import os
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 import requests
+from datetime import timezone, timedelta
+
+FUSO_BRASIL = timezone(timedelta(hours=-3))
 
 from utils import formatar_valor_brl, valor_para_float, data_validade_mes_atual
 from autenticacao import (
@@ -273,7 +276,7 @@ def gerar_card_png(modelo, planos, imagem_url, segmento="", versao=""):
 
     fy       = gt + pah + bh + int(34*S)
     validade = data_validade_mes_atual()
-    geracao  = datetime.datetime.now().strftime("Gerado em: %d/%m/%Y %H:%M")
+    geracao  = datetime.datetime.now(FUSO_BRASIL).strftime("Gerado em: %d/%m/%Y %H:%M")
     fav      = get_font(int(13*S))
     wav, _   = medir_texto(draw, f"A cor escolhida pode alterar o preço. Ofertas válidas até {validade}", fav)
     draw.text(((largura - wav) // 2, fy), f"A cor escolhida pode alterar o preço. Ofertas válidas até {validade}", font=fav, fill=(120,130,140,255))
