@@ -29,7 +29,6 @@ from pages.comparativo      import render as render_comparativo
 from pages.estoque          import render as render_estoque
 from pages.gestao_veiculos  import render as render_gestao_veiculos
 from pages.controle_usados  import render as render_controle_usados
-from pages.documentacao import render as render_documentacao
 
 
 # =========================================================
@@ -386,8 +385,7 @@ if modo_manutencao and not is_staff():
 _TODAS_ABAS = [
     "🚗 Propostas", "🎴 Card", "🔍 Comparativo",
     "📈 Performance", "🚘 Estoque", "🚙 Controle Usados",
-    "📅 Agenda de Entregas", "🔒 Documentação/Criptografia",
-    "👥 Usuários", "🛠️ Gerenciamento"
+    "📅 Agenda de Entregas", "👥 Usuários", "🛠️ Gerenciamento"
 ]
 _abas_render = [a for a in _TODAS_ABAS if a in abas_permitidas()]
 
@@ -418,9 +416,6 @@ elif _aba_ativa == "🚙 Controle Usados":
 elif _aba_ativa == "📅 Agenda de Entregas":
     # Entregador vê só a agenda do dia da gestão de veículos
     render_gestao_veiculos()
-    
-elif _aba_ativa == "🔒 Documentação/Criptografia":
-    render_documentacao()
 
 elif _aba_ativa == "👥 Usuários":
     render_usuarios()
