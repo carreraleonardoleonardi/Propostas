@@ -10,3 +10,4 @@ plotly
 pyarrow
 gspread
 google-auth
+pyzipper
