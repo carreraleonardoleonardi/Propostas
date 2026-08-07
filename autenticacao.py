@@ -33,11 +33,9 @@ TIPOS_ACESSO = ["Staff", "Vendas", "Parceiro", "Entregador"]
 ABAS_POR_TIPO = {
     "Staff":      ["🚗 Propostas", "🎴 Card", "🔍 Comparativo",
                    "📈 Performance", "🚘 Estoque", "🚙 Controle Usados",
-                   "🔒 Documentação/Criptografia",
                    "👥 Usuários", "🛠️ Gerenciamento"],
     "Vendas":     ["🚗 Propostas", "🎴 Card",
-                   "🔍 Comparativo", "🚘 Estoque",
-                   "🔒 Documentação/Criptografia"],
+                   "🔍 Comparativo", "🚘 Estoque"],
     "Parceiro":   ["🎴 Card", "🚘 Estoque", "📈 Performance"],
     "Entregador": ["📅 Agenda de Entregas", "🚙 Controle Usados"],
 }
