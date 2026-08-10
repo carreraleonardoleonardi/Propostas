@@ -73,3 +73,21 @@ def data_validade_mes_atual() -> str:
     ultimo_dia = calendar.monthrange(hoje.year, hoje.month)[1]
     data_final = datetime.date(hoje.year, hoje.month, ultimo_dia)
     return data_final.strftime("%d/%m/%Y")
+
+def formatar_data_validade(valor) -> str:
+    """
+    Formata a data de validade vinda da base.
+    """
+    if valor is None or pd.isna(valor):
+        return ""
+
+    data = pd.to_datetime(
+        valor,
+        dayfirst=True,
+        errors="coerce"
+    )
+
+    if pd.isna(data):
+        return str(valor)
+
+    return data.strftime("%d/%m/%Y")
