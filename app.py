@@ -87,10 +87,6 @@ AZUL_CARRERA_HEX = "#213144"
 # CSS GLOBAL
 # =========================================================
 
-# =========================================================
-# CSS GLOBAL
-# =========================================================
-
 st.markdown(
     """
     <style>
@@ -245,6 +241,53 @@ def medir_texto(draw, text, font):
     return (
         bbox[2] - bbox[0],
         bbox[3] - bbox[1]
+    )
+
+
+# =========================================================
+# FONTE AJUSTADA (evita título/subtítulo estourarem
+# o card ou sobreporem a foto do veículo — comum em
+# nomes longos, como os veículos Arval)
+# =========================================================
+
+def fonte_ajustada(
+    draw,
+    texto,
+    tamanho_max,
+    bold,
+    largura_max,
+    tamanho_min=None
+):
+
+    if tamanho_min is None:
+        tamanho_min = max(
+            12,
+            int(tamanho_max * 0.45)
+        )
+
+    tamanho = tamanho_max
+
+    while tamanho > tamanho_min:
+
+        f = get_font(
+            tamanho,
+            bold=bold
+        )
+
+        w, _ = medir_texto(
+            draw,
+            texto,
+            f
+        )
+
+        if w <= largura_max:
+            return f
+
+        tamanho -= 2
+
+    return get_font(
+        tamanho_min,
+        bold=bold
     )
 
 
@@ -495,6 +538,14 @@ def gerar_card_plano_html(
     # =====================================================
     # HTML
     # =====================================================
+    #
+    # OBS: no card HTML, o CSS já quebra/reduz o título
+    # via flex + min-width:0 no container de texto (ver
+    # .plano-header-left e .plano-titulo abaixo), então o
+    # ajuste automático de fonte é aplicado apenas na
+    # geração do PNG (gerar_card_png), que não tem motor
+    # de layout e precisa calcular isso manualmente.
+    # =====================================================
 
     return f"""
 <html>
@@ -535,6 +586,7 @@ body {{
 
 .plano-header-left {{
     flex:1;
+    min-width:0;
     display:flex;
     flex-direction:column;
     justify-content:center;
@@ -546,6 +598,7 @@ body {{
     font-weight:800;
     line-height:1.1;
     margin:0;
+    overflow-wrap:break-word;
 }}
 
 .plano-versao {{
@@ -553,6 +606,7 @@ body {{
     font-weight:600;
     opacity:.9;
     margin:4px 0 0 0;
+    overflow-wrap:break-word;
 }}
 
 .plano-segmento {{
@@ -567,6 +621,7 @@ body {{
     max-width:380px;
     max-height:200px;
     object-fit:contain;
+    flex-shrink:0;
 }}
 
 .plano-body {{
@@ -867,13 +922,18 @@ def gerar_card_png(
         + mql * lgp
     )
 
+    # -------------------------------------------------
+    # Reserva de altura do rodapé aumentada de 160 para
+    # 200 (em unidades * S) para acomodar o texto de
+    # aviso multi-linha sem espremer o restante do card.
+    # -------------------------------------------------
     alt = (
         margem * 2
         + hh
         + int(60 * S)
         + pah
         + bh
-        + int(160 * S)
+        + int(200 * S)
     )
 
 
@@ -939,6 +999,28 @@ def gerar_card_png(
 
 
     # =====================================================
+    # FOTO
+    # (baixada e redimensionada ANTES do título, para
+    # sabermos exatamente quanto espaço ela ocupa e o
+    # texto nunca ficar por cima dela — esse era o bug
+    # nos veículos Arval, cujos nomes são mais longos)
+    # =====================================================
+
+    foto = baixar_imagem_pil(
+        imagem_url
+    )
+
+    if foto:
+
+        foto.thumbnail(
+            (
+                int(380 * S),
+                int(200 * S)
+            )
+        )
+
+
+    # =====================================================
     # TÍTULO
     # =====================================================
 
@@ -963,6 +1045,28 @@ def gerar_card_png(
         28 * S
     )
 
+    # Espaço horizontal já ocupado pela foto (se houver),
+    # para o texto do título nunca invadi-lo
+    espaco_foto = (
+        foto.width + ph
+        if foto
+        else 0
+    )
+
+    largura_max_titulo = (
+        card_x2
+        - card_x1
+        - ph * 2
+        - espaco_foto
+    )
+
+    fonte_titulo = fonte_ajustada(
+        draw,
+        titulo,
+        int(42 * S),
+        True,
+        largura_max_titulo
+    )
 
     draw.text(
         (
@@ -970,22 +1074,33 @@ def gerar_card_png(
             cy1 + ph
         ),
         titulo,
-        font=get_font(
-            int(42 * S),
-            bold=True
-        ),
+        font=fonte_titulo,
         fill=(255, 255, 255, 255)
     )
 
+    _, titulo_h = medir_texto(
+        draw,
+        titulo,
+        fonte_titulo
+    )
 
     yc = (
         cy1
         + ph
-        + int(52 * S)
+        + titulo_h
+        + int(10 * S)
     )
 
 
     if subtitulo:
+
+        fonte_subtitulo = fonte_ajustada(
+            draw,
+            subtitulo,
+            int(20 * S),
+            False,
+            largura_max_titulo
+        )
 
         draw.text(
             (
@@ -993,14 +1108,19 @@ def gerar_card_png(
                 yc
             ),
             subtitulo,
-            font=get_font(
-                int(20 * S)
-            ),
+            font=fonte_subtitulo,
             fill=(255, 255, 255, 230)
         )
 
-        yc += int(
-            28 * S
+        _, subtitulo_h = medir_texto(
+            draw,
+            subtitulo,
+            fonte_subtitulo
+        )
+
+        yc += (
+            subtitulo_h
+            + int(8 * S)
         )
 
 
@@ -1020,21 +1140,11 @@ def gerar_card_png(
 
 
     # =====================================================
-    # FOTO
+    # POSICIONA A FOTO
+    # (já baixada/redimensionada lá em cima)
     # =====================================================
 
-    foto = baixar_imagem_pil(
-        imagem_url
-    )
-
     if foto:
-
-        foto.thumbnail(
-            (
-                int(380 * S),
-                int(200 * S)
-            )
-        )
 
         bg.paste(
             foto,
@@ -1219,14 +1329,17 @@ def gerar_card_png(
     if validade:
 
         texto_validade = (
-            "A cor escolhida pode alterar o preço. "
-            f"Ofertas válidas até {validade}"
+            "Os valores exibidos são meramente informativos e podem ser alterados a qualquer momento pela locadora, sem aviso prévio.\n"
+            "Não somos responsáveis pela precificação, disponibilidade ou manutenção das condições aqui apresentadas.\n"
+            "As condições vigentes serão confirmadas no ato da contratação."
         )
 
     else:
 
         texto_validade = (
-            "A cor escolhida pode alterar o preço."
+            "Os valores exibidos são meramente informativos e podem ser alterados a qualquer momento pela locadora, sem aviso prévio.\n"
+            "Não somos responsáveis pela precificação, disponibilidade ou manutenção das condições aqui apresentadas.\n"
+            "As condições vigentes serão confirmadas no ato da contratação."
         )
 
 
@@ -1242,7 +1355,12 @@ def gerar_card_png(
     )
 
 
-    wav, _ = medir_texto(
+    # -------------------------------------------------
+    # Mede largura E altura reais do bloco de aviso
+    # (agora com 3 linhas), para posicionar tudo que
+    # vem depois dinamicamente.
+    # -------------------------------------------------
+    wav, hav = medir_texto(
         draw,
         texto_validade,
         fav
@@ -1256,7 +1374,21 @@ def gerar_card_png(
         ),
         texto_validade,
         font=fav,
-        fill=(120, 130, 140, 255)
+        fill=(120, 130, 140, 255),
+        align="center",
+        spacing=6
+    )
+
+
+    # -------------------------------------------------
+    # "Gerado em" fica logo ABAIXO do bloco de aviso,
+    # usando a altura real (hav) em vez de um offset
+    # fixo — assim nunca sobrepõe o texto acima.
+    # -------------------------------------------------
+    y_geracao = (
+        fy
+        + hav
+        + int(14 * S)
     )
 
 
@@ -1270,7 +1402,7 @@ def gerar_card_png(
     draw.text(
         (
             (largura - wg) // 2,
-            fy + int(20 * S)
+            y_geracao
         ),
         geracao,
         font=fav,
@@ -1283,8 +1415,8 @@ def gerar_card_png(
     # =====================================================
 
     ly = (
-        fy
-        + int(36 * S)
+        y_geracao
+        + int(28 * S)
     )
 
 
