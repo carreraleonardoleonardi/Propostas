@@ -1768,6 +1768,11 @@ def render():
 
         hoje_db = datetime.date.today()
 
+        MESES_PT_GV = {
+            1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril", 5: "Maio", 6: "Junho",
+            7: "Julho", 8: "Agosto", 9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro",
+        }
+
         def _periodo_trimestre(ref):
             tri = (ref.month - 1) // 3
             mes_ini = tri * 3 + 1
@@ -1781,16 +1786,36 @@ def render():
 
         if not df_entregues.empty and "data_entrega" in df_entregues.columns:
             df_entregues["_data_dt"] = df_entregues["data_entrega"].apply(parse_data)
-            df_entregues_mes = df_entregues[
-                df_entregues["_data_dt"].apply(lambda d: d is not None and d.year == hoje_db.year and d.month == hoje_db.month)
-            ]
-            tri_ini, tri_fim_mes = _periodo_trimestre(hoje_db)
-            df_entregues_tri = df_entregues[
-                df_entregues["_data_dt"].apply(lambda d: d is not None and d.year == hoje_db.year and tri_ini.month <= d.month <= tri_fim_mes)
-            ]
         else:
-            df_entregues_mes = pd.DataFrame()
-            df_entregues_tri = pd.DataFrame()
+            df_entregues["_data_dt"] = None
+
+        # ── Filtro: mês de referência (afeta pódio, "modelo mais entregue" e rankings) ──
+        meses_validos = sorted(
+            {(d.year, d.month) for d in df_entregues["_data_dt"] if d is not None}, reverse=True
+        )
+        if (hoje_db.year, hoje_db.month) not in meses_validos:
+            meses_validos = [(hoje_db.year, hoje_db.month)] + meses_validos
+
+        opcoes_mes = [f"{MESES_PT_GV[m]}/{y}" for (y, m) in meses_validos]
+        mapa_mes   = {f"{MESES_PT_GV[m]}/{y}": (y, m) for (y, m) in meses_validos}
+        rotulo_atual = f"{MESES_PT_GV[hoje_db.month]}/{hoje_db.year}"
+        idx_default  = opcoes_mes.index(rotulo_atual) if rotulo_atual in opcoes_mes else 0
+
+        fdb1, _ = st.columns([2, 5])
+        with fdb1:
+            mes_sel_label = st.selectbox("📅 Mês de referência", opcoes_mes, index=idx_default, key="db_mes_ref")
+        ano_sel, mes_sel = mapa_mes[mes_sel_label]
+        data_ref_sel = datetime.date(ano_sel, mes_sel, 1)
+
+        df_entregues_mes = df_entregues[
+            df_entregues["_data_dt"].apply(lambda d: d is not None and d.year == ano_sel and d.month == mes_sel)
+        ]
+        tri_ini, tri_fim_mes = _periodo_trimestre(data_ref_sel)
+        df_entregues_tri = df_entregues[
+            df_entregues["_data_dt"].apply(lambda d: d is not None and d.year == ano_sel and tri_ini.month <= d.month <= tri_fim_mes)
+        ]
+        tri_num = (mes_sel - 1) // 3 + 1
+        rotulo_trimestre = f"{tri_num}º Trimestre/{ano_sel}"
 
         # ── KPIs gerais ───────────────────────────────────
         st.markdown(f"""
@@ -1805,11 +1830,11 @@ def render():
           </div>
           <div class="kpi-box">
             <div class="kpi-n" style="color:#10b981">{len(df_entregues_mes)}</div>
-            <div class="kpi-l">Entregues (mês)</div>
+            <div class="kpi-l">Entregues ({mes_sel_label})</div>
           </div>
           <div class="kpi-box">
             <div class="kpi-n" style="color:#0891b2">{len(df_entregues_tri)}</div>
-            <div class="kpi-l">Entregues (trimestre)</div>
+            <div class="kpi-l">Entregues ({rotulo_trimestre})</div>
           </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1843,9 +1868,9 @@ def render():
                 st.bar_chart(por_marca, height=260, color=D_ESC)
 
         with cm2:
-            st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🏆 Modelo Mais Entregue (mês)</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🏆 Modelo Mais Entregue ({mes_sel_label})</div>", unsafe_allow_html=True)
             if df_entregues_mes.empty or "modelo" not in df_entregues_mes.columns:
-                st.info("Nenhuma entrega no mês ainda.")
+                st.info("Nenhuma entrega no período selecionado.")
             else:
                 top_modelo = df_entregues_mes["modelo"].value_counts().reset_index()
                 top_modelo.columns = ["Modelo", "Qtd"]
@@ -1856,16 +1881,16 @@ def render():
                     padding:24px 18px;text-align:center;margin-top:4px">
                     <div style="font-size:34px">🏆</div>
                     <div style="font-size:20px;font-weight:900;color:{AZUL};margin-top:4px">{nome_top}</div>
-                    <div style="font-size:13px;color:#64748b;margin-top:2px">{qtd_top} entrega(s) este mês</div>
+                    <div style="font-size:13px;color:#64748b;margin-top:2px">{qtd_top} entrega(s) em {mes_sel_label}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
         st.divider()
 
-        # ── Top 3 Vendedores (mês atual) ─────────────────────────
-        st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🥇 Top 3 Vendedores — Mês Atual</div>", unsafe_allow_html=True)
+        # ── Top 3 Vendedores (mês selecionado) ────────────────────
+        st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🥇 Top 3 Vendedores — {mes_sel_label}</div>", unsafe_allow_html=True)
         if df_entregues_mes.empty or "consultor" not in df_entregues_mes.columns:
-            st.info("Nenhuma entrega no mês ainda.")
+            st.info("Nenhuma entrega no período selecionado.")
         else:
             rank_mes = (df_entregues_mes.groupby("consultor").size()
                         .reset_index(name="qtd").sort_values("qtd", ascending=False).head(3))
@@ -1897,18 +1922,18 @@ def render():
         st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🧑‍💼 Entregas por Vendedor</div>", unsafe_allow_html=True)
         ev1, ev2 = st.columns(2)
         with ev1:
-            st.markdown(f"<div style='font-size:11px;font-weight:700;color:{D_ESC};text-transform:uppercase;margin-bottom:6px'>Mês Atual</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:11px;font-weight:700;color:{D_ESC};text-transform:uppercase;margin-bottom:6px'>{mes_sel_label}</div>", unsafe_allow_html=True)
             if df_entregues_mes.empty or "consultor" not in df_entregues_mes.columns:
-                st.info("Nenhuma entrega no mês ainda.")
+                st.info("Nenhuma entrega no período selecionado.")
             else:
                 rk_mes = (df_entregues_mes.groupby("consultor").size()
                           .reset_index(name="Entregas").sort_values("Entregas", ascending=False))
                 rk_mes.columns = ["Consultor", "Entregas"]
                 st.dataframe(rk_mes, use_container_width=True, hide_index=True, height=280)
         with ev2:
-            st.markdown(f"<div style='font-size:11px;font-weight:700;color:{D_ESC};text-transform:uppercase;margin-bottom:6px'>Trimestre Atual</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:11px;font-weight:700;color:{D_ESC};text-transform:uppercase;margin-bottom:6px'>{rotulo_trimestre}</div>", unsafe_allow_html=True)
             if df_entregues_tri.empty or "consultor" not in df_entregues_tri.columns:
-                st.info("Nenhuma entrega no trimestre ainda.")
+                st.info("Nenhuma entrega no trimestre selecionado.")
             else:
                 rk_tri = (df_entregues_tri.groupby("consultor").size()
                           .reset_index(name="Entregas").sort_values("Entregas", ascending=False))
