@@ -15,6 +15,8 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 
+from pages.performance_bd import render as render_performance_bd
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIG
@@ -488,6 +490,16 @@ def render():
         "Andrea Bettega Pereira da Costa","Raymond Jose Duque Bello"}
 
     LOCADORA_PARCEIRO = "GM Fleet"
+
+    # ── Seletor de área ──────────────────────────────────────────────────────
+    area = st.radio(
+        "Área",
+        ["📈 Indicadores (Azure)", "📊 Relatório Consolidado (Sheets)"],
+        horizontal=True, label_visibility="collapsed", key="rel_area",
+    )
+    if area == "📈 Indicadores (Azure)":
+        render_performance_bd()
+        return
 
     st.markdown(CSS, unsafe_allow_html=True)
 

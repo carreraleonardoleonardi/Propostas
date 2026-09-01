@@ -5,11 +5,37 @@ import json
 import datetime
 import io
 
+from autenticacao import carregar_usuarios, get_col
+
 # ── Constantes ───────────────────────────────────────────────────────────────
 
 GV_SHEET_URL = "https://docs.google.com/spreadsheets/d/1BpAtiXz4AEuQg4kVx8OFonohPlvbScdOgWPIZRxQnxo/export?format=csv&gid=461042346"
 GV_WEBHOOK   = "https://script.google.com/macros/s/AKfycbzFP-ezBsVx7W7VhYATKgaqdAg485o0AQb8s9FdGTlvmdzK1YRj7dCUVfTrXNgJOToc/exec"
 SENHA_FECHAMENTO = "#FECHAMENTO"
+
+
+# ── Consultores (usuários do sistema) ─────────────────────────────────────────
+def _opcoes_consultores(valor_atual: str | None = None) -> list:
+    """
+    Retorna a lista de nomes de usuários cadastrados no sistema
+    (planilha de autenticação) para uso em caixas de seleção de Consultor.
+    Se `valor_atual` não estiver na lista (ex.: registro legado com texto
+    livre), ele é incluído no final para não quebrar o valor já salvo.
+    """
+    try:
+        df_u = carregar_usuarios()
+        col_nome = get_col(df_u, ["Nome", "nome"]) or "Nome"
+        nomes = sorted(
+            n for n in df_u[col_nome].dropna().astype(str).str.strip().unique().tolist() if n
+        ) if not df_u.empty and col_nome in df_u.columns else []
+    except Exception:
+        nomes = []
+
+    opcoes = [""] + nomes
+    val = (valor_atual or "").strip()
+    if val and val not in opcoes:
+        opcoes.append(val)
+    return opcoes
 
 GV_STATUS_LIST = [
     "Trânsito Livre", "Trânsito Vendido", "Livre",
@@ -808,11 +834,20 @@ def render():
         st.info("Nenhum veículo cadastrado ainda.")
         return
 
+    # Coluna auxiliar: final da placa (para filtro)
+    if "placa" in df_gv.columns:
+        def _final_placa(p):
+            s = str(p).strip()
+            return s[-1].upper() if s and s not in ("nan", "None", "—") else ""
+        df_gv["_final_placa"] = df_gv["placa"].apply(_final_placa)
+    else:
+        df_gv["_final_placa"] = ""
+
     # ── Navegação principal ──────────────────────────────
     if pode_editar:
-        aba_principal = st.tabs(["🚘 Estoque", "📅 Agenda", "📦 Recebimento", "✉️ E-mail das 11"])
+        aba_principal = st.tabs(["🚘 Estoque", "📅 Agenda", "📊 Dashboard", "📦 Recebimento", "✉️ E-mail das 11"])
     else:
-        aba_principal = st.tabs(["🚘 Estoque", "📅 Agenda"])
+        aba_principal = st.tabs(["🚘 Estoque", "📅 Agenda", "📊 Dashboard"])
 
     with aba_principal[0]:
 
@@ -841,6 +876,12 @@ def render():
             _dv_kpi = _dv_kpi[_dv_kpi["locadora"]   == st.session_state["p_loc"]]
         if st.session_state.get("p_con","Todos") != "Todos":
             _dv_kpi = _dv_kpi[_dv_kpi["consultor"]  == st.session_state["p_con"]]
+        if st.session_state.get("p_mod","Todos") != "Todos":
+            _dv_kpi = _dv_kpi[_dv_kpi["modelo"]     == st.session_state["p_mod"]]
+        if st.session_state.get("p_cor","Todas") != "Todas":
+            _dv_kpi = _dv_kpi[_dv_kpi["cor"]        == st.session_state["p_cor"]]
+        if st.session_state.get("p_fplaca","Todos") != "Todos":
+            _dv_kpi = _dv_kpi[_dv_kpi["_final_placa"] == st.session_state["p_fplaca"]]
 
         # ── KPIs sobre base filtrada pelos selectbox ──
         total   = len(_dv_kpi)
@@ -940,6 +981,45 @@ def render():
             cons = ["Todos"] + sorted(df_gv["consultor"].dropna().unique()) if "consultor" in df_gv.columns else ["Todos"]
             flt_con = st.selectbox("Consultor", cons, key="p_con")
 
+        # Modelo / Cor / Final de Placa — em cascata seguindo a hierarquia:
+        # Status → Fabricante → Locadora → Modelo → Cor → Final de Placa
+        # (Consultor é filtro independente, fora dessa cadeia)
+        g1, g2, g3 = st.columns(3)
+
+        # Base após Status + Fabricante + Locadora
+        df_base_sfl = df_gv.copy()
+        if flt_sta != "Todos": df_base_sfl = df_base_sfl[df_base_sfl["status"]     == flt_sta]
+        if flt_fab != "Todos": df_base_sfl = df_base_sfl[df_base_sfl["fabricante"] == flt_fab]
+        if flt_loc != "Todos": df_base_sfl = df_base_sfl[df_base_sfl["locadora"]   == flt_loc]
+
+        with g1:
+            modelos_disp = (["Todos"] + sorted([m for m in df_base_sfl["modelo"].dropna().astype(str).unique() if m.strip()])
+                             if "modelo" in df_base_sfl.columns else ["Todos"])
+            if st.session_state.get("p_mod") not in modelos_disp:
+                st.session_state["p_mod"] = "Todos"
+            flt_mod = st.selectbox("Modelo", modelos_disp, key="p_mod")
+
+        # Base após + Modelo
+        df_base_mod = df_base_sfl.copy()
+        if flt_mod != "Todos": df_base_mod = df_base_mod[df_base_mod["modelo"] == flt_mod]
+
+        with g2:
+            cores_disp = (["Todas"] + sorted([c for c in df_base_mod["cor"].dropna().astype(str).unique() if c.strip()])
+                          if "cor" in df_base_mod.columns else ["Todas"])
+            if st.session_state.get("p_cor") not in cores_disp:
+                st.session_state["p_cor"] = "Todas"
+            flt_cor = st.selectbox("Cor", cores_disp, key="p_cor")
+
+        # Base após + Cor
+        df_base_cor = df_base_mod.copy()
+        if flt_cor != "Todas": df_base_cor = df_base_cor[df_base_cor["cor"] == flt_cor]
+
+        with g3:
+            finais_disp = ["Todos"] + sorted([f for f in df_base_cor["_final_placa"].unique() if f])
+            if st.session_state.get("p_fplaca") not in finais_disp:
+                st.session_state["p_fplaca"] = "Todos"
+            flt_fplaca = st.selectbox("Final de Placa", finais_disp, key="p_fplaca")
+
         b1, b2, b3, b4,b5 = st.columns([3, 3, 3, 3,3])
         with b1: s_ch = st.text_input("🔑 Chassi",    placeholder="Chassi",    key="b_ch")
         with b2: s_pl = st.text_input("🪪 Placa",     placeholder="Placa",     key="b_pl")
@@ -948,15 +1028,19 @@ def render():
         with b5:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
             if st.button("🧹", use_container_width=True, key="gv_limpar", help="Limpar filtros"):
-                for k in ["p_sta","p_fab","p_loc","p_con","b_ch","b_pl","b_pe","gv_sel", "b_cl"]:
+                for k in ["p_sta","p_fab","p_loc","p_con","p_mod","p_cor","p_fplaca",
+                          "b_ch","b_pl","b_pe","gv_sel", "b_cl"]:
                     if k in st.session_state: del st.session_state[k]
                 st.rerun()
-                
+
         dv = df_gv.copy()
-        if flt_sta != "Todos": dv = dv[dv["status"]     == flt_sta]
-        if flt_fab != "Todos": dv = dv[dv["fabricante"] == flt_fab]
-        if flt_loc != "Todos": dv = dv[dv["locadora"]   == flt_loc]
-        if flt_con != "Todos": dv = dv[dv["consultor"]  == flt_con]
+        if flt_sta    != "Todos": dv = dv[dv["status"]        == flt_sta]
+        if flt_fab    != "Todos": dv = dv[dv["fabricante"]    == flt_fab]
+        if flt_loc    != "Todos": dv = dv[dv["locadora"]      == flt_loc]
+        if flt_con    != "Todos": dv = dv[dv["consultor"]     == flt_con]
+        if flt_mod    != "Todos": dv = dv[dv["modelo"]        == flt_mod]
+        if flt_cor    != "Todas": dv = dv[dv["cor"]           == flt_cor]
+        if flt_fplaca != "Todos": dv = dv[dv["_final_placa"]  == flt_fplaca]
         if s_ch: dv = dv[dv["chassi"].astype(str).str.lower().str.contains(s_ch.lower(), na=False)]
         if s_pl: dv = dv[dv["placa"].astype(str).str.lower().str.contains(s_pl.lower(),  na=False)]
         if s_pe: dv = dv[dv["pedido"].astype(str).str.lower().str.contains(s_pe.lower(), na=False)]
@@ -1011,7 +1095,7 @@ def render():
                         o1, o2, o3 = st.columns(3)
                         with o1:
                             loc    = st.selectbox("Locadora", GV_LOCADORAS)
-                            consc  = st.text_input("Consultor")
+                            consc  = st.selectbox("Consultor", _opcoes_consultores())
                             stc    = st.selectbox("Status Inicial", GV_STATUS_LIST)
                         with o2:
                             clic   = st.text_input("Cliente")
@@ -1334,7 +1418,11 @@ def render():
                             with a3: nl_ = st.selectbox("Loja *", GV_LOJAS)
                             a4, a5 = st.columns(2)
                             with a4: ne = st.text_input("Entregador", value=sv(vm,"entregador") if sv(vm,"entregador")!="—" else "")
-                            with a5: nc = st.text_input("Consultor",  value=sv(vm,"consultor")  if sv(vm,"consultor") !="—" else "")
+                            with a5:
+                                _val_nc = sv(vm,"consultor") if sv(vm,"consultor") != "—" else ""
+                                _op_nc  = _opcoes_consultores(_val_nc)
+                                nc = st.selectbox("Consultor", _op_nc,
+                                    index=_op_nc.index(_val_nc) if _val_nc in _op_nc else 0)
                             conf = st.form_submit_button("📅 Confirmar agendamento", use_container_width=True, type="primary")
 
                         if conf:
@@ -1398,7 +1486,10 @@ def render():
                             with o1:
                                 eloc = st.selectbox("Locadora", GV_LOCADORAS,
                                     index=GV_LOCADORAS.index(sv(vm,"locadora")) if sv(vm,"locadora") in GV_LOCADORAS else 0)
-                                eco  = st.text_input("Consultor", value=sv(vm,"consultor") if sv(vm,"consultor")!="—" else "")
+                                _val_eco = sv(vm,"consultor") if sv(vm,"consultor")!="—" else ""
+                                _op_eco  = _opcoes_consultores(_val_eco)
+                                eco = st.selectbox("Consultor", _op_eco,
+                                    index=_op_eco.index(_val_eco) if _val_eco in _op_eco else 0)
                             with o2:
                                 ecl  = st.text_input("Cliente",     value=sv(vm,"cliente")     if sv(vm,"cliente")    !="—" else "")
                                 epe  = st.text_input("Nº Pedido",   value=sv(vm,"pedido")      if sv(vm,"pedido")     !="—" else "")
@@ -1669,10 +1760,166 @@ def render():
                         )
 
     # ══════════════════════════════════════════════════════════
+    # ABA DASHBOARD
+    # ══════════════════════════════════════════════════════════
+    with aba_principal[2]:
+        st.markdown(f"<h3 style='color:{AZUL};margin:0 0 4px'>📊 Dashboard do Estoque</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#64748b;font-size:13px;margin-bottom:16px'>Visão geral do estoque completo (não considera os filtros da aba Estoque).</p>", unsafe_allow_html=True)
+
+        hoje_db = datetime.date.today()
+
+        def _periodo_trimestre(ref):
+            tri = (ref.month - 1) // 3
+            mes_ini = tri * 3 + 1
+            mes_fim = mes_ini + 2
+            return datetime.date(ref.year, mes_ini, 1), mes_fim
+
+        df_livres     = df_gv[df_gv["status"] == "Livre"]            if "status" in df_gv.columns else pd.DataFrame()
+        df_trans_liv  = df_gv[df_gv["status"] == "Trânsito Livre"]   if "status" in df_gv.columns else pd.DataFrame()
+        df_trans_vend = df_gv[df_gv["status"] == "Trânsito Vendido"] if "status" in df_gv.columns else pd.DataFrame()
+        df_entregues  = df_gv[df_gv["status"] == "Entregue"].copy()  if "status" in df_gv.columns else pd.DataFrame()
+
+        if not df_entregues.empty and "data_entrega" in df_entregues.columns:
+            df_entregues["_data_dt"] = df_entregues["data_entrega"].apply(parse_data)
+            df_entregues_mes = df_entregues[
+                df_entregues["_data_dt"].apply(lambda d: d is not None and d.year == hoje_db.year and d.month == hoje_db.month)
+            ]
+            tri_ini, tri_fim_mes = _periodo_trimestre(hoje_db)
+            df_entregues_tri = df_entregues[
+                df_entregues["_data_dt"].apply(lambda d: d is not None and d.year == hoje_db.year and tri_ini.month <= d.month <= tri_fim_mes)
+            ]
+        else:
+            df_entregues_mes = pd.DataFrame()
+            df_entregues_tri = pd.DataFrame()
+
+        # ── KPIs gerais ───────────────────────────────────
+        st.markdown(f"""
+        <div class="kpi-row">
+          <div class="kpi-box">
+            <div class="kpi-n" style="color:#22c55e">{len(df_livres)}</div>
+            <div class="kpi-l">Livres</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-n" style="color:#94a3b8">{len(df_trans_liv)+len(df_trans_vend)}</div>
+            <div class="kpi-l">Em Trânsito</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-n" style="color:#10b981">{len(df_entregues_mes)}</div>
+            <div class="kpi-l">Entregues (mês)</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-n" style="color:#0891b2">{len(df_entregues_tri)}</div>
+            <div class="kpi-l">Entregues (trimestre)</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.divider()
+
+        # ── Estoque Consolidado: Modelo × Cores Disponíveis ─────
+        st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🚗 Estoque Disponível — Modelo e Cores</div>", unsafe_allow_html=True)
+        if df_livres.empty or "modelo" not in df_livres.columns or "cor" not in df_livres.columns:
+            st.info("Nenhum veículo livre no momento.")
+        else:
+            linhas_cons = []
+            for modelo, grupo in df_livres.groupby("modelo"):
+                contagem_cor = grupo["cor"].value_counts()
+                cores_txt = ", ".join(f"{cor} ({qtd})" for cor, qtd in contagem_cor.items())
+                linhas_cons.append({"Modelo": modelo, "Cores Disponíveis": cores_txt, "Total": len(grupo)})
+            df_consolidado = pd.DataFrame(linhas_cons).sort_values("Total", ascending=False)
+            st.dataframe(df_consolidado, use_container_width=True, hide_index=True, height=340,
+                         column_config={"Total": st.column_config.NumberColumn(width="small")})
+
+        st.divider()
+
+        # ── Gráfico por Marca + Modelo mais entregue no mês ─────
+        cm1, cm2 = st.columns([3, 2])
+        with cm1:
+            st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🏭 Estoque Disponível por Marca</div>", unsafe_allow_html=True)
+            if df_livres.empty or "fabricante" not in df_livres.columns:
+                st.info("Sem dados de estoque livre.")
+            else:
+                por_marca = df_livres.groupby("fabricante").size().sort_values(ascending=False)
+                st.bar_chart(por_marca, height=260, color=D_ESC)
+
+        with cm2:
+            st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🏆 Modelo Mais Entregue (mês)</div>", unsafe_allow_html=True)
+            if df_entregues_mes.empty or "modelo" not in df_entregues_mes.columns:
+                st.info("Nenhuma entrega no mês ainda.")
+            else:
+                top_modelo = df_entregues_mes["modelo"].value_counts().reset_index()
+                top_modelo.columns = ["Modelo", "Qtd"]
+                nome_top = top_modelo.iloc[0]["Modelo"]
+                qtd_top  = int(top_modelo.iloc[0]["Qtd"])
+                st.markdown(f"""
+                <div style="background:#fdf8f0;border:2px solid {D_ESC};border-radius:14px;
+                    padding:24px 18px;text-align:center;margin-top:4px">
+                    <div style="font-size:34px">🏆</div>
+                    <div style="font-size:20px;font-weight:900;color:{AZUL};margin-top:4px">{nome_top}</div>
+                    <div style="font-size:13px;color:#64748b;margin-top:2px">{qtd_top} entrega(s) este mês</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.divider()
+
+        # ── Top 3 Vendedores (mês atual) ─────────────────────────
+        st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🥇 Top 3 Vendedores — Mês Atual</div>", unsafe_allow_html=True)
+        if df_entregues_mes.empty or "consultor" not in df_entregues_mes.columns:
+            st.info("Nenhuma entrega no mês ainda.")
+        else:
+            rank_mes = (df_entregues_mes.groupby("consultor").size()
+                        .reset_index(name="qtd").sort_values("qtd", ascending=False).head(3))
+            medalhas = {0: "🥇", 1: "🥈", 2: "🥉"}
+            ordem_vis = [1, 0, 2] if len(rank_mes) >= 3 else list(range(len(rank_mes)))
+            alturas   = {0: 150, 1: 115, 2: 95}
+            cols_pod = []
+            registros = rank_mes.reset_index(drop=True).to_dict("records")
+            for idx in ordem_vis:
+                if idx >= len(registros): continue
+                r = registros[idx]
+                cols_pod.append(f"""
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;max-width:180px">
+                    <div style="font-size:26px;margin-bottom:4px">{medalhas.get(idx,'🏅')}</div>
+                    <div style="width:100%;background:linear-gradient(180deg,#fdf8f0,#f5e9d5);
+                        border:1px solid #e8e0d0;border-radius:12px 12px 6px 6px;
+                        min-height:{alturas.get(idx,90)}px;display:flex;flex-direction:column;
+                        align-items:center;justify-content:flex-end;padding:12px 8px">
+                        <div style="font-size:24px;font-weight:900;color:{AZUL}">{int(r['qtd'])}</div>
+                        <div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase">entregas</div>
+                        <div style="font-size:12px;font-weight:800;color:{AZUL};margin-top:4px;text-align:center">{r['consultor']}</div>
+                    </div>
+                </div>""")
+            st.markdown(f'<div style="display:flex;align-items:flex-end;gap:10px;justify-content:center;padding:10px 0 4px">{"".join(cols_pod)}</div>', unsafe_allow_html=True)
+
+        st.divider()
+
+        # ── Entregas por Vendedor: Mês Atual x Trimestre Atual ───
+        st.markdown(f"<div style='font-size:14px;font-weight:800;color:{AZUL};margin-bottom:8px'>🧑‍💼 Entregas por Vendedor</div>", unsafe_allow_html=True)
+        ev1, ev2 = st.columns(2)
+        with ev1:
+            st.markdown(f"<div style='font-size:11px;font-weight:700;color:{D_ESC};text-transform:uppercase;margin-bottom:6px'>Mês Atual</div>", unsafe_allow_html=True)
+            if df_entregues_mes.empty or "consultor" not in df_entregues_mes.columns:
+                st.info("Nenhuma entrega no mês ainda.")
+            else:
+                rk_mes = (df_entregues_mes.groupby("consultor").size()
+                          .reset_index(name="Entregas").sort_values("Entregas", ascending=False))
+                rk_mes.columns = ["Consultor", "Entregas"]
+                st.dataframe(rk_mes, use_container_width=True, hide_index=True, height=280)
+        with ev2:
+            st.markdown(f"<div style='font-size:11px;font-weight:700;color:{D_ESC};text-transform:uppercase;margin-bottom:6px'>Trimestre Atual</div>", unsafe_allow_html=True)
+            if df_entregues_tri.empty or "consultor" not in df_entregues_tri.columns:
+                st.info("Nenhuma entrega no trimestre ainda.")
+            else:
+                rk_tri = (df_entregues_tri.groupby("consultor").size()
+                          .reset_index(name="Entregas").sort_values("Entregas", ascending=False))
+                rk_tri.columns = ["Consultor", "Entregas"]
+                st.dataframe(rk_tri, use_container_width=True, hide_index=True, height=280)
+
+    # ══════════════════════════════════════════════════════════
     # ABA RECEBIMENTO
     # ══════════════════════════════════════════════════════════
     if pode_editar:
-     with aba_principal[2]:
+     with aba_principal[3]:
         st.markdown(f"<h3 style='color:{AZUL};margin:0 0 4px'>📦 Recebimento de Veículos</h3>", unsafe_allow_html=True)
         st.markdown("<p style='color:#64748b;font-size:13px;margin-bottom:16px'>Cole a lista de chassis abaixo, um por linha. O sistema verifica na base e atualiza status e data de chegada.</p>", unsafe_allow_html=True)
 
@@ -1787,7 +2034,7 @@ def render():
     # ABA E-MAIL DAS 11
     # ══════════════════════════════════════════════════════════
     if pode_editar:
-     with aba_principal[3]:
+     with aba_principal[4]:
         st.markdown(
             f"<h3 style='color:{AZUL};margin:0 0 4px'>📧 E-mail das 11</h3>"
             f"<p style='color:#64748b;font-size:13px;margin-bottom:16px'>"

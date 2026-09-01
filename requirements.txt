@@ -10,3 +10,6 @@ plotly
 pyarrow
 gspread
 google-auth
+pymssql
+sqlalchemy
+pyodbc
