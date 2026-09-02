@@ -47,6 +47,7 @@ GV_FABRICANTES  =  ["Volkswagen","Chevrolet","Nissan","Jeep","GWM","GAC","Omoda"
 GV_LOCADORAS    = ["LM FROTAS","RCI","TOOT","GM Fleet", "Arval", "Localiza"]
 GV_LOJAS        = ["LOJA ALPHAVILLE","LOJA VILLA LOBOS","LOJA OSASCO","LOJA BUTANTÃ","LOJA COTIA","OUTRO DN"]
 GV_COMBUSTIVEIS = ["Flex","Gasolina","Elétrico","Híbrido","Diesel"]
+GV_CONDICOES    = ["Zero/Km", "Seminovo"]
 GV_COLUNAS      = [
     "id","fabricante","modelo","chassi","placa","cor",
     "ano_fabricacao","ano_modelo","combustivel","opcionais",
@@ -55,7 +56,7 @@ GV_COLUNAS      = [
     "entregador","avaria","obs_avaria","loja_entrega",
     "valor_nf","margem","comissao",
     "criado_em","atualizado_em","atualizado_por",
-    "transporte_solicitado",
+    "transporte_solicitado","condicao",
 ]
 
 STATUS_CORES = {
@@ -882,6 +883,8 @@ def render():
             _dv_kpi = _dv_kpi[_dv_kpi["cor"]        == st.session_state["p_cor"]]
         if st.session_state.get("p_fplaca","Todos") != "Todos":
             _dv_kpi = _dv_kpi[_dv_kpi["_final_placa"] == st.session_state["p_fplaca"]]
+        if st.session_state.get("p_cond","Todas") != "Todas" and "condicao" in _dv_kpi.columns:
+            _dv_kpi = _dv_kpi[_dv_kpi["condicao"]   == st.session_state["p_cond"]]
 
         # ── KPIs sobre base filtrada pelos selectbox ──
         total   = len(_dv_kpi)
@@ -969,7 +972,7 @@ def render():
             )
 
         # ── Filtros ──────────────────────────────────────────
-        f1, f2, f3, f4 = st.columns(4)
+        f1, f2, f3, f4, f5 = st.columns(5)
         with f1: flt_sta = st.selectbox("Status", ["Todos"] + GV_STATUS_LIST, key="p_sta")
         with f2:
             fabs = ["Todos"] + sorted(df_gv["fabricante"].dropna().unique()) if "fabricante" in df_gv.columns else ["Todos"]
@@ -980,6 +983,9 @@ def render():
         with f4:
             cons = ["Todos"] + sorted(df_gv["consultor"].dropna().unique()) if "consultor" in df_gv.columns else ["Todos"]
             flt_con = st.selectbox("Consultor", cons, key="p_con")
+        with f5:
+            conds = ["Todas"] + sorted(df_gv["condicao"].dropna().unique()) if "condicao" in df_gv.columns else ["Todas"]
+            flt_cond = st.selectbox("Condição", conds, key="p_cond")
 
         # Modelo / Cor / Final de Placa — em cascata seguindo a hierarquia:
         # Status → Fabricante → Locadora → Modelo → Cor → Final de Placa
@@ -1028,7 +1034,7 @@ def render():
         with b5:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
             if st.button("🧹", use_container_width=True, key="gv_limpar", help="Limpar filtros"):
-                for k in ["p_sta","p_fab","p_loc","p_con","p_mod","p_cor","p_fplaca",
+                for k in ["p_sta","p_fab","p_loc","p_con","p_mod","p_cor","p_fplaca","p_cond",
                           "b_ch","b_pl","b_pe","gv_sel", "b_cl"]:
                     if k in st.session_state: del st.session_state[k]
                 st.rerun()
@@ -1041,6 +1047,7 @@ def render():
         if flt_mod    != "Todos": dv = dv[dv["modelo"]        == flt_mod]
         if flt_cor    != "Todas": dv = dv[dv["cor"]           == flt_cor]
         if flt_fplaca != "Todos": dv = dv[dv["_final_placa"]  == flt_fplaca]
+        if flt_cond   != "Todas" and "condicao" in dv.columns: dv = dv[dv["condicao"] == flt_cond]
         if s_ch: dv = dv[dv["chassi"].astype(str).str.lower().str.contains(s_ch.lower(), na=False)]
         if s_pl: dv = dv[dv["placa"].astype(str).str.lower().str.contains(s_pl.lower(),  na=False)]
         if s_pe: dv = dv[dv["pedido"].astype(str).str.lower().str.contains(s_pe.lower(), na=False)]
@@ -1089,6 +1096,7 @@ def render():
                             anof   = st.text_input("Ano Fabricação")
                             anom   = st.text_input("Ano Modelo")
                             opc    = st.text_input("Opcionais")
+                        cond = st.selectbox("Condição *", GV_CONDICOES)
  
                         # ── Operacional ──────────────────────────────
                         st.markdown("**🏢 Operacional**")
@@ -1144,7 +1152,8 @@ def render():
                                     lj, vnf, mgm, com,
                                     agr, agr,
                                     st.session_state.get("auth_nome", "Sistema"),
-                                    "",  # transporte_solicitado
+                                    "",    # transporte_solicitado
+                                    cond,  # condicao
                                 ]
                                 pg = st.progress(0, "Salvando..."); pg.progress(70, "Enviando...")
                                 if gv_enviar({"aba": "veiculos", "acao": "inserir", "linha": nl}):
@@ -1161,7 +1170,7 @@ def render():
                     # Colunas completas (todos os 30 campos da base)
                     CABECALHO_XLS = [
                             "FABRICANTE","MODELO","CHASSI","PLACA","COR",
-                            "ANO FABRICACAO","ANO MODELO","COMBUSTIVEL","OPCIONAIS",
+                            "ANO FABRICACAO","ANO MODELO","COMBUSTIVEL","OPCIONAIS","CONDICAO",
                             "LOCADORA","CONSULTOR","CLIENTE","PEDIDO","STATUS",
                             "LOCAL ATUAL","DATA CHEGADA","DATA ENTREGA","HORA ENTREGA",
                             "ENTREGADOR","AVARIA","OBS AVARIA","LOJA ENTREGA",
@@ -1210,6 +1219,7 @@ def render():
                                     "ANO MODELO":     ["ANO MODELO","ANO_MODELO","ano_modelo","ANO MOD.","ANO MOD"],
                                     "COMBUSTIVEL":    ["COMBUSTIVEL","combustivel","Combustível","COMBUSTÍVEL"],
                                     "OPCIONAIS":      ["OPCIONAIS","opcionais","Opcionais"],
+                                    "CONDICAO":       ["CONDICAO","CONDIÇÃO","condicao","condição","Condição"],
                                     "LOCADORA":       ["LOCADORA","locadora","Locadora"],
                                     "CONSULTOR":      ["CONSULTOR","consultor","Consultor"],
                                     "CLIENTE":        ["CLIENTE","cliente","Cliente"],
@@ -1274,6 +1284,7 @@ def render():
                                         agr,                # atualizado_em
                                         "Importação",       # atualizado_por
                                         "",                 # transporte_solicitado
+                                        g("CONDICAO") if g("CONDICAO") in GV_CONDICOES else "",  # condicao
                                     ]
                                     if not gv_enviar({"aba":"veiculos","acao":"inserir","linha":nl}):
                                         errs += 1
@@ -1480,6 +1491,8 @@ def render():
                             ecb = st.selectbox("Combustível", GV_COMBUSTIVEIS,
                                 index=GV_COMBUSTIVEIS.index(sv(vm,"combustivel")) if sv(vm,"combustivel") in GV_COMBUSTIVEIS else 0)
                             eopc = st.text_input("Opcionais", value=sv(vm,"opcionais") if sv(vm,"opcionais")!="—" else "")
+                            econd = st.selectbox("Condição", GV_CONDICOES,
+                                index=GV_CONDICOES.index(sv(vm,"condicao")) if sv(vm,"condicao") in GV_CONDICOES else 0)
 
                             st.markdown("**🏢 Operacional**")
                             o1, o2, o3 = st.columns(3)
@@ -1544,6 +1557,7 @@ def render():
                                     ("ano_modelo",  eam),
                                     ("combustivel", ecb),
                                     ("opcionais",   eopc),
+                                    ("condicao",    econd),
                                     ("locadora",    eloc),
                                     ("consultor",   eco),
                                     ("cliente",     ecl),
@@ -1584,6 +1598,7 @@ def render():
                                 ("Cor", sv(vm,"cor")),               ("Combustível", sv(vm,"combustivel")),
                                 ("Ano Fab.", sv(vm,"ano_fabricacao")),("Ano Mod.", sv(vm,"ano_modelo")),
                                 ("Opcionais", sv(vm,"opcionais")),
+                                ("Condição", sv(vm,"condicao")),
                             ]),
                             ("🏢 Operacional", [
                                 ("Status", sv(vm,"status")),         ("Locadora", sv(vm,"locadora")),
