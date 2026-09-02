@@ -18,9 +18,9 @@ import socket
 import sys
 
 SERVIDOR = os.environ.get("AZURE_SQL_SERVER",   "sql-agil.database.windows.net")
-BANCO    = os.environ.get("AZURE_SQL_DATABASE", "SEU_BANCO")
-USUARIO  = os.environ.get("AZURE_SQL_USER",     "SEU_USUARIO")
-SENHA    = os.environ.get("AZURE_SQL_PASSWORD", "SUA_SENHA")
+BANCO    = os.environ.get("AZURE_SQL_DATABASE", "SQL-AGIL")
+USUARIO  = os.environ.get("AZURE_SQL_USER",     "leonardo.leonardi@carrera.com.br")
+SENHA    = os.environ.get("AZURE_SQL_PASSWORD", "Leo507@99")
 PORTA    = 1433
 
 
@@ -92,8 +92,8 @@ def etapa_2_pymssql():
     return False
 
 
-def etapa_3_pyodbc():
-    linha("ETAPA 3 — pyodbc com ODBC Driver 18 (alternativa mais robusta / obrigatória p/ Azure AD)")
+def etapa_3_pyodbc(modo_auth="ActiveDirectoryPassword"):
+    linha(f"ETAPA 3 — pyodbc com ODBC Driver 18 (Authentication={modo_auth or 'nenhuma'})")
     try:
         import pyodbc
     except ImportError:
@@ -111,24 +111,29 @@ def etapa_3_pyodbc():
 
     driver = next((d for d in drivers if "18" in d), drivers[0])
 
-    eh_azure_ad = "@" in USUARIO and not USUARIO.lower().endswith(f"@{SERVIDOR.split('.')[0].lower()}")
-    auth_clause = "Authentication=ActiveDirectoryPassword;" if eh_azure_ad else ""
-    if eh_azure_ad:
-        print(f"  ℹ️  Usuário Azure AD detectado — usando Authentication=ActiveDirectoryPassword")
+    sem_senha = modo_auth in ("ActiveDirectoryInteractive", "ActiveDirectoryIntegrated",
+                               "ActiveDirectoryDeviceCodeFlow", "ActiveDirectoryMsi")
+    partes = [f"DRIVER={{{driver}}}", f"SERVER=tcp:{SERVIDOR},1433", f"DATABASE={BANCO}"]
+    if modo_auth != "ActiveDirectoryIntegrated":
+        partes.append(f"UID={USUARIO}")
+    if not sem_senha:
+        partes.append(f"PWD={SENHA}")
+    partes += ["Encrypt=yes", "TrustServerCertificate=no", "Connection Timeout=15"]
+    if modo_auth:
+        partes.append(f"Authentication={modo_auth}")
+    conn_str = ";".join(partes) + ";"
 
-    conn_str = (
-        f"DRIVER={{{driver}}};SERVER=tcp:{SERVIDOR},1433;DATABASE={BANCO};"
-        f"UID={USUARIO};PWD={SENHA};Encrypt=yes;TrustServerCertificate=no;"
-        f"Connection Timeout=15;{auth_clause}"
-    )
+    if modo_auth == "ActiveDirectoryInteractive":
+        print("  ⏳ Modo interativo — uma janela de login/MFA deve abrir agora...")
+
     try:
         conn = pyodbc.connect(conn_str, timeout=15)
         cur = conn.cursor()
         cur.execute("SELECT 1")
         cur.fetchone()
         conn.close()
-        print(f"  ✅ Conectou com sucesso via pyodbc usando driver '{driver}'"
-              f"{' + Azure AD' if eh_azure_ad else ''}!")
+        print(f"  ✅ Conectou com sucesso via pyodbc usando driver '{driver}' "
+              f"(Authentication={modo_auth or 'nenhuma'})!")
         return True
     except Exception as e:
         print(f"  ❌ Falhou: {e}")
@@ -148,20 +153,34 @@ if __name__ == "__main__":
         print("\n🛑 Pare aqui: resolva o problema de rede/porta antes de prosseguir.")
         sys.exit(1)
 
+    eh_azure_ad = "@" in USUARIO and not USUARIO.lower().endswith(f"@{SERVIDOR.split('.')[0].lower()}")
+
     pymssql_ok = etapa_2_pymssql()
     if pymssql_ok:
         print("\n🎉 pymssql funciona neste ambiente — use-o normalmente no app.")
         sys.exit(0)
 
-    print("\n⚠️ pymssql falhou mesmo com a rede OK — provável problema de TLS/FreeTDS.")
-    pyodbc_ok = etapa_3_pyodbc()
+    if not eh_azure_ad:
+        print("\n⚠️ pymssql falhou mesmo com a rede OK — provável problema de TLS/FreeTDS.")
+        pyodbc_ok = etapa_3_pyodbc(modo_auth=None)
+    else:
+        print("\n⚠️ Tentando via pyodbc com Authentication=ActiveDirectoryPassword...")
+        pyodbc_ok = etapa_3_pyodbc(modo_auth="ActiveDirectoryPassword")
+        if not pyodbc_ok:
+            print("\n⚠️ ActiveDirectoryPassword falhou — se sua conta exige MFA, isso é esperado.")
+            print("   Tentando modo interativo (uma janela de login/MFA vai abrir)...")
+            pyodbc_ok = etapa_3_pyodbc(modo_auth="ActiveDirectoryInteractive")
 
     linha("RESUMO")
     if pyodbc_ok:
-        print("  ✅ pyodbc funcionou — recomendo trocar o driver da app para pyodbc.")
-        print("     No secrets.toml, adicione: driver = \"pyodbc\" na seção [azure_sql]")
+        print("  ✅ pyodbc funcionou.")
+        print('     No secrets.toml, confirme: driver = "ODBC Driver 18 for SQL Server"')
+        if eh_azure_ad:
+            print('     E, se foi o modo interativo que funcionou, adicione:')
+            print('     authentication = "ActiveDirectoryInteractive"')
     else:
-        print("  ❌ Nenhum driver conectou. Causas prováveis restantes:")
+        print("  ❌ Nenhum driver/modo conectou. Causas prováveis restantes:")
         print("     • Senha com caractere especial mal escapado")
-        print("     • Nome de usuário deveria ser 'usuario@nome-curto-do-servidor'")
+        print("     • Conta Azure AD sem acesso ao banco (nem CREATE USER foi feito)")
         print("     • VPN/proxy corporativo interceptando TLS na porta 1433")
+

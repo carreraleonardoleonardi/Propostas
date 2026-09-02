@@ -173,23 +173,42 @@ def _engine():
         odbc_driver = driver_cfg if "odbc driver" in driver_cfg.lower() else cfg.get(
             "odbc_driver", "ODBC Driver 18 for SQL Server"
         )
-        query = {
-            "driver": odbc_driver,
-            "Encrypt": "yes",
-            "TrustServerCertificate": "no",
-            "Connection Timeout": str(timeout),
-        }
+
+        # Alguns modos de autenticação Azure AD são interativos ou não usam
+        # usuário/senha da forma tradicional — não incluir UID/PWD nesses
+        # casos (incluí-los pode até quebrar o handshake dependendo da
+        # versão do driver).
+        auth_lower = (autenticacao or "").lower()
+        SEM_SENHA = {"activedirectoryinteractive", "activedirectoryintegrated",
+                     "activedirectorydevicecodeflow", "activedirectorymsi"}
+        incluir_uid = auth_lower != "activedirectoryintegrated"
+        incluir_pwd = auth_lower not in SEM_SENHA
+
+        # Monta a connection string ODBC manualmente (em vez de deixar o
+        # SQLAlchemy montar a partir de um dict de query params) — chaves
+        # com espaço como "Connection Timeout" podem ser mal codificadas na
+        # URL e corromper a autenticação, resultando em erro de login
+        # genérico ("<token-identified principal>") mesmo com credenciais
+        # corretas.
+        partes = [
+            f"DRIVER={{{odbc_driver}}}",
+            f"SERVER=tcp:{servidor},{porta}",
+            f"DATABASE={banco}",
+        ]
+        if incluir_uid: partes.append(f"UID={usuario}")
+        if incluir_pwd: partes.append(f"PWD={senha}")
+        partes += [
+            "Encrypt=yes",
+            "TrustServerCertificate=no",
+            f"Connection Timeout={timeout}",
+        ]
         if autenticacao:
-            query["Authentication"] = autenticacao
+            partes.append(f"Authentication={autenticacao}")
+        conn_str = ";".join(partes) + ";"
 
         url = sa.URL.create(
             "mssql+pyodbc",
-            username=usuario,
-            password=senha,
-            host=servidor,
-            port=porta,
-            database=banco,
-            query=query,
+            query={"odbc_connect": conn_str},
         )
         return sa.create_engine(url, pool_pre_ping=True, fast_executemany=True)
 
@@ -216,6 +235,65 @@ def _engine():
         url, connect_args={"tds_version": "7.4", "login_timeout": timeout},
         pool_pre_ping=True,
     )
+
+
+def _debug_info() -> dict:
+    """
+    Recalcula os parâmetros de conexão (sem cache, sem tocar no banco) só
+    para exibir em modo debug — senha sempre mascarada. Usado para comparar
+    lado a lado com o testar_conexao_azure.py quando o login falha mesmo
+    com credenciais corretas.
+    """
+    cfg = st.secrets.get("azure_sql", {})
+    servidor = cfg.get("server", "")
+    banco    = cfg.get("database", "")
+    usuario  = cfg.get("username", "")
+    senha    = cfg.get("password", "")
+    porta    = int(cfg.get("port", 1433))
+    timeout  = int(cfg.get("timeout", 30))
+    short_name = servidor.split(".")[0] if servidor else ""
+    driver_cfg = str(cfg.get("driver", "pymssql")).strip()
+    usa_pyodbc = "odbc" in driver_cfg.lower()
+    eh_azure_ad = bool(usuario) and "@" in usuario and not usuario.lower().endswith(f"@{short_name.lower()}")
+    autenticacao = cfg.get("authentication", "ActiveDirectoryPassword" if eh_azure_ad else None)
+
+    senha_masc = (senha[:2] + "•" * max(len(senha) - 2, 0)) if senha else "(VAZIA — verifique o secrets.toml!)"
+
+    if usa_pyodbc:
+        odbc_driver = driver_cfg if "odbc driver" in driver_cfg.lower() else cfg.get(
+            "odbc_driver", "ODBC Driver 18 for SQL Server"
+        )
+        auth_lower = (autenticacao or "").lower()
+        SEM_SENHA = {"activedirectoryinteractive", "activedirectoryintegrated",
+                     "activedirectorydevicecodeflow", "activedirectorymsi"}
+        incluir_uid = auth_lower != "activedirectoryintegrated"
+        incluir_pwd = auth_lower not in SEM_SENHA
+        partes = [f"DRIVER={{{odbc_driver}}}", f"SERVER=tcp:{servidor},{porta}", f"DATABASE={banco}"]
+        if incluir_uid: partes.append(f"UID={usuario}")
+        if incluir_pwd: partes.append(f"PWD={senha_masc}")
+        partes += ["Encrypt=yes", "TrustServerCertificate=no", f"Connection Timeout={timeout}"]
+        if autenticacao: partes.append(f"Authentication={autenticacao}")
+        conn_str_masc = ";".join(partes) + ";"
+    else:
+        conn_str_masc = (
+            f"mssql+pymssql — usuário={usuario if '@' in usuario else f'{usuario}@{short_name}'}, "
+            f"senha={senha_masc}, host={servidor}:{porta}, banco={banco}, tds_version=7.4"
+        )
+
+    drivers_instalados = None
+    pyodbc_versao = None
+    try:
+        import pyodbc
+        pyodbc_versao = pyodbc.version
+        drivers_instalados = [d for d in pyodbc.drivers() if "SQL Server" in d]
+    except Exception:
+        pass
+
+    return {
+        "driver_cfg": driver_cfg, "usa_pyodbc": usa_pyodbc, "eh_azure_ad": eh_azure_ad,
+        "autenticacao": autenticacao, "conn_str_masc": conn_str_masc,
+        "pyodbc_versao": pyodbc_versao, "drivers_instalados": drivers_instalados,
+    }
 
 
 def _testar_conexao() -> tuple[bool, str]:
@@ -743,6 +821,7 @@ def render():
         st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
         if st.button("🔄 Atualizar", use_container_width=True, key="pf_refresh"):
             st.cache_data.clear()
+            _engine.clear()  # descarta também a engine de conexão em cache
             st.rerun()
 
     ok, erro = _testar_conexao()
@@ -753,6 +832,24 @@ def render():
         )
         with st.expander("Detalhes técnicos do erro"):
             st.code(erro)
+        with st.expander("🔍 Debug — string de conexão que o app está usando (senha mascarada)"):
+            info_dbg = _debug_info()
+            st.write(f"**Driver configurado:** `{info_dbg['driver_cfg']}`")
+            st.write(f"**Detectado como Azure AD:** {info_dbg['eh_azure_ad']}")
+            st.write(f"**Authentication usado:** `{info_dbg['autenticacao']}`")
+            if info_dbg["pyodbc_versao"]:
+                st.write(f"**pyodbc versão:** `{info_dbg['pyodbc_versao']}`")
+                st.write(f"**Drivers ODBC instalados:** {info_dbg['drivers_instalados']}")
+            else:
+                st.write("**pyodbc:** não encontrado neste ambiente Python.")
+            st.write("**Connection string montada:**")
+            st.code(info_dbg["conn_str_masc"])
+            st.caption(
+                "Compare esta string com a que funcionou no `testar_conexao_azure.py` "
+                "(mesmo servidor, banco, usuário, driver e Authentication). Se algo aqui "
+                "estiver diferente do que você digitou no secrets.toml, o app está lendo "
+                "outro arquivo de secrets."
+            )
         if "20002" in erro or "20018" in erro or "Adaptive Server" in erro:
             st.info(
                 "💡 Esse erro específico costuma ser falha de handshake TLS/FreeTDS "
@@ -766,6 +863,14 @@ def render():
             st.info(
                 "💡 O usuário configurado é uma conta Azure AD — ajuste o driver "
                 "para `\"ODBC Driver 18 for SQL Server\"` no secrets.toml."
+            )
+        elif "18456" in erro or "token-identified principal" in erro:
+            st.info(
+                "💡 Login rejeitado. Confira no secrets.toml se `username`/`password` "
+                "estão exatamente certos (sem espaços extras) e se `driver` está como "
+                '`"ODBC Driver 18 for SQL Server"`. Se acabou de trocar o código ou as '
+                "credenciais, clique em **🔄 Atualizar** acima — ele agora também limpa "
+                "a conexão em cache."
             )
         st.markdown('</div>', unsafe_allow_html=True)
         return
