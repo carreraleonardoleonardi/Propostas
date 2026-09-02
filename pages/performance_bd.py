@@ -128,6 +128,33 @@ CSS = f"""
 # ══════════════════════════════════════════════════════════════════════════
 # CONEXÃO AZURE SQL
 # ══════════════════════════════════════════════════════════════════════════
+def _melhor_driver_odbc(preferido: str) -> str:
+    """
+    Retorna o driver ODBC "SQL Server" realmente instalado neste ambiente.
+    Local (Windows) costuma ter o Driver 18; o Streamlit Community Cloud
+    normalmente só tem o Driver 17 pré-instalado — em vez de travar exigindo
+    um específico, detecta o que está disponível e usa a versão mais nova.
+    Se não conseguir sondar (pyodbc ausente), mantém o valor configurado.
+    """
+    try:
+        import pyodbc
+        instalados = [d for d in pyodbc.drivers() if "ODBC Driver" in d and "SQL Server" in d]
+    except Exception:
+        instalados = []
+
+    if not instalados:
+        return preferido
+    if preferido in instalados:
+        return preferido
+
+    import re
+    def _versao(nome):
+        m = re.search(r"(\d+)", nome)
+        return int(m.group(1)) if m else 0
+
+    return sorted(instalados, key=_versao, reverse=True)[0]
+
+
 @st.cache_resource(show_spinner=False)
 def _engine():
     """
@@ -170,9 +197,10 @@ def _engine():
     )
 
     if usa_pyodbc:
-        odbc_driver = driver_cfg if "odbc driver" in driver_cfg.lower() else cfg.get(
+        odbc_driver_desejado = driver_cfg if "odbc driver" in driver_cfg.lower() else cfg.get(
             "odbc_driver", "ODBC Driver 18 for SQL Server"
         )
+        odbc_driver = _melhor_driver_odbc(odbc_driver_desejado)
 
         # Alguns modos de autenticação Azure AD são interativos ou não usam
         # usuário/senha da forma tradicional — não incluir UID/PWD nesses
@@ -260,9 +288,10 @@ def _debug_info() -> dict:
     senha_masc = (senha[:2] + "•" * max(len(senha) - 2, 0)) if senha else "(VAZIA — verifique o secrets.toml!)"
 
     if usa_pyodbc:
-        odbc_driver = driver_cfg if "odbc driver" in driver_cfg.lower() else cfg.get(
+        odbc_driver_desejado = driver_cfg if "odbc driver" in driver_cfg.lower() else cfg.get(
             "odbc_driver", "ODBC Driver 18 for SQL Server"
         )
+        odbc_driver = _melhor_driver_odbc(odbc_driver_desejado)
         auth_lower = (autenticacao or "").lower()
         SEM_SENHA = {"activedirectoryinteractive", "activedirectoryintegrated",
                      "activedirectorydevicecodeflow", "activedirectorymsi"}
@@ -290,7 +319,9 @@ def _debug_info() -> dict:
         pass
 
     return {
-        "driver_cfg": driver_cfg, "usa_pyodbc": usa_pyodbc, "eh_azure_ad": eh_azure_ad,
+        "driver_cfg": driver_cfg,
+        "odbc_driver_usado": odbc_driver if usa_pyodbc else None,
+        "usa_pyodbc": usa_pyodbc, "eh_azure_ad": eh_azure_ad,
         "autenticacao": autenticacao, "conn_str_masc": conn_str_masc,
         "pyodbc_versao": pyodbc_versao, "drivers_instalados": drivers_instalados,
     }
@@ -834,7 +865,9 @@ def render():
             st.code(erro)
         with st.expander("🔍 Debug — string de conexão que o app está usando (senha mascarada)"):
             info_dbg = _debug_info()
-            st.write(f"**Driver configurado:** `{info_dbg['driver_cfg']}`")
+            st.write(f"**Driver configurado no secrets.toml:** `{info_dbg['driver_cfg']}`")
+            if info_dbg.get("odbc_driver_usado"):
+                st.write(f"**Driver ODBC realmente usado (auto-detectado):** `{info_dbg['odbc_driver_usado']}`")
             st.write(f"**Detectado como Azure AD:** {info_dbg['eh_azure_ad']}")
             st.write(f"**Authentication usado:** `{info_dbg['autenticacao']}`")
             if info_dbg["pyodbc_versao"]:
