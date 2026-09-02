@@ -17,10 +17,10 @@ import os
 import socket
 import sys
 
-SERVIDOR = os.environ.get("AZURE_SQL_SERVER",   "sql-agil.database.windows.net")
-BANCO    = os.environ.get("AZURE_SQL_DATABASE", "SQL-AGIL")
-USUARIO  = os.environ.get("AZURE_SQL_USER",     "leonardo.leonardi@carrera.com.br")
-SENHA    = os.environ.get("AZURE_SQL_PASSWORD", "Leo507@99")
+SERVIDOR = os.environ.get("AZURE_SQL_SERVER",   "")
+BANCO    = os.environ.get("AZURE_SQL_DATABASE", "")
+USUARIO  = os.environ.get("AZURE_SQL_USER",     "r")
+SENHA    = os.environ.get("AZURE_SQL_PASSWORD", "")
 PORTA    = 1433
 
 
