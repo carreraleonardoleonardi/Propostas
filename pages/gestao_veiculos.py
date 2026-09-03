@@ -57,6 +57,8 @@ GV_COLUNAS      = [
     "valor_nf","margem","comissao",
     "criado_em","atualizado_em","atualizado_por",
     "transporte_solicitado","condicao",
+    "valor_referencia","margem_venda","margem_entrega",
+    "comissao_carrera","comissao_vendedor",
 ]
 
 STATUS_CORES = {
@@ -175,6 +177,16 @@ def gv_novo_id():
 def gv_val_row(row, col, default=""):
     v = row.get(col, default)
     return "" if pd.isna(v) else str(v)
+
+def gv_calc_comissoes(valor_referencia: float, margem_venda: float, margem_entrega: float) -> tuple:
+    """
+    Comissão Carrera (R$) = (Margem Venda % + Margem Entrega %) sobre o Valor Referência.
+    Comissão Vendedor (R$) = 2,5% da Comissão Carrera.
+    """
+    margem_total_pct = (margem_venda or 0) + (margem_entrega or 0)
+    comissao_carrera = (valor_referencia or 0) * (margem_total_pct / 100)
+    comissao_vendedor = comissao_carrera * 0.025
+    return round(comissao_carrera, 2), round(comissao_vendedor, 2)
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 
@@ -1127,11 +1139,16 @@ def render():
                         lj = st.selectbox("Loja de Entrega", [""] + GV_LOJAS)
  
                         # ── Financeiro ───────────────────────────────
-                        st.markdown("**💰 Financeiro**")
+                        st.markdown("**💰 Financeiro** &nbsp;<span style='font-size:11px;color:#94a3b8;font-weight:400'>(opcional — às vezes ainda não existe no ato do cadastro)</span>", unsafe_allow_html=True)
                         fn1, fn2, fn3 = st.columns(3)
-                        with fn1: vnf = st.number_input("Valor NF (R$)", min_value=0.0, step=100.0, value=0.0)
-                        with fn2: mgm = st.number_input("Margem (%)",    min_value=0.0, step=0.1,   value=0.0)
-                        with fn3: com = st.number_input("Comissão (%)",  min_value=0.0, step=0.1,   value=0.0)
+                        with fn1: valor_ref = st.number_input("Valor Referência (R$)", min_value=0.0, step=100.0, value=0.0)
+                        with fn2: mg_venda  = st.number_input("Margem Venda (%)",      min_value=0.0, step=0.1,   value=0.0)
+                        with fn3: mg_entrega= st.number_input("Margem Entrega (%)",    min_value=0.0, step=0.1,   value=0.0)
+                        st.caption(
+                            "Comissão Carrera e Comissão Vendedor são calculadas automaticamente "
+                            "ao salvar (Comissão Carrera = % de margem sobre o Valor Referência; "
+                            "Comissão Vendedor = 2,5% da Comissão Carrera)."
+                        )
  
                         if st.form_submit_button("💾 Cadastrar", use_container_width=True, type="primary"):
                             if not mod or not chassi:
@@ -1140,6 +1157,7 @@ def render():
                                 st.error("Chassi já existe!")
                             else:
                                 agr = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                                com_carrera, com_vendedor = gv_calc_comissoes(valor_ref, mg_venda, mg_entrega)
                                 nl  = [
                                     gv_novo_id(), fab, mod, chassi, placa, cor,
                                     anof, anom, comb, opc,
@@ -1149,11 +1167,13 @@ def render():
                                     hent.strftime("%H:%M"),
                                     entregador,
                                     av, obs if av == "Sim" else "",
-                                    lj, vnf, mgm, com,
+                                    lj, "", "", "",   # valor_nf/margem/comissao — descontinuados, ver campos novos abaixo
                                     agr, agr,
                                     st.session_state.get("auth_nome", "Sistema"),
                                     "",    # transporte_solicitado
                                     cond,  # condicao
+                                    valor_ref, mg_venda, mg_entrega,
+                                    com_carrera, com_vendedor,
                                 ]
                                 pg = st.progress(0, "Salvando..."); pg.progress(70, "Enviando...")
                                 if gv_enviar({"aba": "veiculos", "acao": "inserir", "linha": nl}):
@@ -1174,7 +1194,7 @@ def render():
                             "LOCADORA","CONSULTOR","CLIENTE","PEDIDO","STATUS",
                             "LOCAL ATUAL","DATA CHEGADA","DATA ENTREGA","HORA ENTREGA",
                             "ENTREGADOR","AVARIA","OBS AVARIA","LOJA ENTREGA",
-                            "VALOR NF","MARGEM","COMISSAO",
+                            "VALOR REFERENCIA","MARGEM VENDA","MARGEM ENTREGA",
                     ]
                     try:
                         import openpyxl
@@ -1233,9 +1253,9 @@ def render():
                                     "AVARIA":         ["AVARIA","avaria","COM AVARIA?","COM AVARIA"],
                                     "OBS AVARIA":     ["OBS AVARIA","OBS_AVARIA","obs_avaria","Obs Avaria","Obs. Avaria"],
                                     "LOJA ENTREGA":   ["LOJA ENTREGA","LOJA_ENTREGA","loja_entrega","Loja Entrega","LOJA DE ENTREGA"],
-                                    "VALOR NF":       ["VALOR NF","VALOR_NF","valor_nf","Valor NF","Valor Nota"],
-                                    "MARGEM":         ["MARGEM","margem","Margem"],
-                                    "COMISSAO":       ["COMISSAO","COMISSÃO","comissao","comissão","Comissão"],
+                                    "VALOR REFERENCIA": ["VALOR REFERENCIA","VALOR_REFERENCIA","valor_referencia","Valor Referência","VALOR REFERÊNCIA"],
+                                    "MARGEM VENDA":     ["MARGEM VENDA","MARGEM_VENDA","margem_venda","Margem Venda"],
+                                    "MARGEM ENTREGA":   ["MARGEM ENTREGA","MARGEM_ENTREGA","margem_entrega","Margem Entrega"],
                                 }
                                 errs = 0; dps = []
                                 pg2 = st.progress(0, "Importando...")
@@ -1252,7 +1272,17 @@ def render():
                                     if ci: cex.add(ci)
                                     av_raw = g("AVARIA") or "Não"
                                     av_val = "Sim" if av_raw.lower() in ("sim","yes","1","true") else "Não"
-                                    # Monta nl com todos os 30 campos na ordem exata de GV_COLUNAS
+
+                                    def _num_seguro(txt):
+                                        try: return float(str(txt).replace(",", ".").strip() or 0)
+                                        except Exception: return 0.0
+                                    _imp_valor_ref = _num_seguro(g("VALOR REFERENCIA"))
+                                    _imp_mg_venda   = _num_seguro(g("MARGEM VENDA"))
+                                    _imp_mg_entrega = _num_seguro(g("MARGEM ENTREGA"))
+                                    _imp_com_carrera, _imp_com_vendedor = gv_calc_comissoes(
+                                        _imp_valor_ref, _imp_mg_venda, _imp_mg_entrega)
+
+                                    # Monta nl com todos os 35 campos na ordem exata de GV_COLUNAS
                                     nl = [
                                         gv_novo_id(),       # id
                                         g("FABRICANTE"),    # fabricante
@@ -1277,14 +1307,14 @@ def render():
                                         av_val,             # avaria
                                         g("OBS AVARIA") if av_val=="Sim" else "",  # obs_avaria
                                         g("LOJA ENTREGA"),  # loja_entrega
-                                        g("VALOR NF"),      # valor_nf
-                                        g("MARGEM"),        # margem
-                                        g("COMISSAO"),      # comissao
+                                        "", "", "",         # valor_nf/margem/comissao — descontinuados
                                         agr,                # criado_em
                                         agr,                # atualizado_em
                                         "Importação",       # atualizado_por
                                         "",                 # transporte_solicitado
                                         g("CONDICAO") if g("CONDICAO") in GV_CONDICOES else "",  # condicao
+                                        _imp_valor_ref, _imp_mg_venda, _imp_mg_entrega,
+                                        _imp_com_carrera, _imp_com_vendedor,
                                     ]
                                     if not gv_enviar({"aba":"veiculos","acao":"inserir","linha":nl}):
                                         errs += 1
@@ -1530,20 +1560,28 @@ def render():
                                 eht = st.time_input("Hora Entrega", value=hv)
                             een = st.text_input("Entregador", value=sv(vm,"entregador") if sv(vm,"entregador")!="—" else "")
 
-                            st.markdown("**💰 Financeiro**")
+                            st.markdown("**💰 Financeiro** &nbsp;<span style='font-size:11px;color:#94a3b8;font-weight:400'>(opcional)</span>", unsafe_allow_html=True)
                             fn1, fn2, fn3 = st.columns(3)
                             with fn1:
-                                try: nf_v = float(sv(vm,"valor_nf"))
-                                except: nf_v = 0.0
-                                enf = st.number_input("Valor NF (R$)", value=nf_v, min_value=0.0, step=100.0)
+                                try: ref_v = float(sv(vm,"valor_referencia"))
+                                except: ref_v = 0.0
+                                e_ref = st.number_input("Valor Referência (R$)", value=ref_v, min_value=0.0, step=100.0)
                             with fn2:
-                                try: mg_v = float(sv(vm,"margem"))
-                                except: mg_v = 0.0
-                                emg = st.number_input("Margem (%)", value=mg_v, min_value=0.0, step=0.1)
+                                try: mgv_v = float(sv(vm,"margem_venda"))
+                                except: mgv_v = 0.0
+                                e_mgv = st.number_input("Margem Venda (%)", value=mgv_v, min_value=0.0, step=0.1)
                             with fn3:
-                                try: cm_v = float(sv(vm,"comissao"))
-                                except: cm_v = 0.0
-                                ecm = st.number_input("Comissão (%)", value=cm_v, min_value=0.0, step=0.1)
+                                try: mge_v = float(sv(vm,"margem_entrega"))
+                                except: mge_v = 0.0
+                                e_mge = st.number_input("Margem Entrega (%)", value=mge_v, min_value=0.0, step=0.1)
+
+                            _prev_carrera, _prev_vendedor = gv_calc_comissoes(e_ref, e_mgv, e_mge)
+                            st.caption(
+                                f"💡 Com os valores atuais: Comissão Carrera ≈ **R$ {_prev_carrera:,.2f}** · "
+                                f"Comissão Vendedor ≈ **R$ {_prev_vendedor:,.2f}** "
+                                f"(recalculado ao clicar em Salvar)"
+                                .replace(",", "X").replace(".", ",").replace("X", ".")
+                            )
 
                             if st.form_submit_button("💾 Salvar alterações", use_container_width=True, type="primary"):
                                 agr = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -1570,9 +1608,11 @@ def render():
                                     ("data_entrega",eet.strftime("%d/%m/%Y") if eet else ""),
                                     ("hora_entrega",eht.strftime("%H:%M")),
                                     ("entregador",  een),
-                                    ("valor_nf",    enf),
-                                    ("margem",      emg),
-                                    ("comissao",    ecm),
+                                    ("valor_referencia", e_ref),
+                                    ("margem_venda",      e_mgv),
+                                    ("margem_entrega",    e_mge),
+                                    ("comissao_carrera",  _prev_carrera),
+                                    ("comissao_vendedor", _prev_vendedor),
                                     ("atualizado_em",  agr),
                                     ("atualizado_por", st.session_state.get("auth_nome","Sistema")),
                                 ]
@@ -1612,7 +1652,11 @@ def render():
                                 ("Entregador", sv(vm,"entregador")),      ("Idade", f"{id_p}d" if id_p else "—"),
                             ]),
                             ("💰 Financeiro", [
-                                ("Valor NF", sv(vm,"valor_nf")), ("Margem", sv(vm,"margem")), ("Comissão", sv(vm,"comissao")),
+                                ("Valor Referência", sv(vm,"valor_referencia")),
+                                ("Margem Venda", sv(vm,"margem_venda")),
+                                ("Margem Entrega", sv(vm,"margem_entrega")),
+                                ("Comissão Carrera", sv(vm,"comissao_carrera")),
+                                ("Comissão Vendedor", sv(vm,"comissao_vendedor")),
                             ]),
                             ("🕐 Auditoria", [
                                 ("ID", sv(vm,"id")), ("Criado em", sv(vm,"criado_em")),

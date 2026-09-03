@@ -5,23 +5,61 @@ Diagnóstico isolado (sem Streamlit) da conexão com o Azure SQL Server.
 Roda cada camada separadamente para identificar exatamente onde a
 conexão está falhando: rede/porta, TLS/FreeTDS, ou login.
 
-Uso:
+Uso (rodar de dentro da pasta Propostas/, para encontrar o secrets.toml):
     python Dados/testar_conexao_azure.py
 
-Preencha SERVIDOR / BANCO / USUARIO / SENHA abaixo (ou exporte como
-variáveis de ambiente AZURE_SQL_SERVER, AZURE_SQL_DATABASE,
-AZURE_SQL_USER, AZURE_SQL_PASSWORD antes de rodar).
+Fonte única de credenciais: este script lê automaticamente a seção
+[azure_sql] de .streamlit/secrets.toml — o MESMO arquivo que o app usa.
+Não há mais nada para editar aqui. Se esse arquivo não existir ou a seção
+[azure_sql] estiver faltando, ele avisa e cai para variáveis de ambiente
+(AZURE_SQL_SERVER, AZURE_SQL_DATABASE, AZURE_SQL_USER, AZURE_SQL_PASSWORD)
+como último recurso.
 """
 
 import os
 import socket
 import sys
+from pathlib import Path
 
-SERVIDOR = os.environ.get("AZURE_SQL_SERVER",   "")
-BANCO    = os.environ.get("AZURE_SQL_DATABASE", "")
-USUARIO  = os.environ.get("AZURE_SQL_USER",     "r")
-SENHA    = os.environ.get("AZURE_SQL_PASSWORD", "")
-PORTA    = 1433
+try:
+    import tomllib  # Python 3.11+
+except ImportError:
+    tomllib = None
+
+
+def _carregar_secrets_azure_sql() -> dict:
+    """Lê [azure_sql] de .streamlit/secrets.toml, procurando a partir da
+    pasta deste script e subindo diretórios até achar (funciona tanto
+    rodando de dentro de Propostas/ quanto de dentro de Propostas/Dados)."""
+    candidatos = [
+        Path.cwd() / ".streamlit" / "secrets.toml",
+        Path(__file__).resolve().parent.parent / ".streamlit" / "secrets.toml",
+    ]
+    for caminho in candidatos:
+        if caminho.exists():
+            if tomllib is None:
+                print(f"  ⚠️  Encontrei {caminho} mas este Python não tem 'tomllib' "
+                      "(precisa Python 3.11+). Rode: pip install tomli e ajuste o import.")
+                continue
+            with open(caminho, "rb") as f:
+                dados = tomllib.load(f)
+            secao = dados.get("azure_sql")
+            if secao:
+                print(f"  ✅ Credenciais carregadas de: {caminho}")
+                return secao
+            print(f"  ⚠️  {caminho} existe mas não tem seção [azure_sql].")
+    print("  ⚠️  Não encontrei .streamlit/secrets.toml com [azure_sql]. "
+          "Usando variáveis de ambiente (se definidas) ou placeholders.")
+    return {}
+
+
+_SECRETS = _carregar_secrets_azure_sql()
+
+SERVIDOR = _SECRETS.get("server",   os.environ.get("AZURE_SQL_SERVER",   "sql-agil.database.windows.net"))
+BANCO    = _SECRETS.get("database", os.environ.get("AZURE_SQL_DATABASE", "SEU_BANCO"))
+USUARIO  = _SECRETS.get("username", os.environ.get("AZURE_SQL_USER",     "SEU_USUARIO"))
+SENHA    = _SECRETS.get("password", os.environ.get("AZURE_SQL_PASSWORD", "SUA_SENHA"))
+PORTA    = int(_SECRETS.get("port", 1433))
 
 
 def linha(txt=""):
@@ -113,7 +151,7 @@ def etapa_3_pyodbc(modo_auth="ActiveDirectoryPassword"):
 
     sem_senha = modo_auth in ("ActiveDirectoryInteractive", "ActiveDirectoryIntegrated",
                                "ActiveDirectoryDeviceCodeFlow", "ActiveDirectoryMsi")
-    partes = [f"DRIVER={{{driver}}}", f"SERVER=tcp:{SERVIDOR},1433", f"DATABASE={BANCO}"]
+    partes = [f"DRIVER={{{driver}}}", f"SERVER=tcp:{SERVIDOR},{PORTA}", f"DATABASE={BANCO}"]
     if modo_auth != "ActiveDirectoryIntegrated":
         partes.append(f"UID={USUARIO}")
     if not sem_senha:
