@@ -156,7 +156,10 @@ def gv_carregar():
     try:
         df = pd.read_csv(GV_SHEET_URL, header=0)
         df.columns = [c.strip().lower().replace(" ","_") for c in df.columns]
-        for col in ["data_chegada","data_entrega","criado_em","atualizado_em"]:
+        # OBS: criado_em/atualizado_em são gravados com hora ("DD/MM/AAAA HH:MM")
+        # e por isso NÃO passam por fmt_data (que só entende data sem hora e
+        # zerava esses campos silenciosamente). Ficam como string original.
+        for col in ["data_chegada","data_entrega"]:
             if col in df.columns:
                 df[col] = df[col].astype(str).apply(fmt_data)
         return df
@@ -1046,10 +1049,18 @@ def render():
         with b5:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
             if st.button("🧹", use_container_width=True, key="gv_limpar", help="Limpar filtros"):
-                for k in ["p_sta","p_fab","p_loc","p_con","p_mod","p_cor","p_fplaca","p_cond",
+                for k in ["p_sta","p_fab","p_loc","p_con","p_mod","p_cor","p_fplaca","p_cond","p_ordem",
                           "b_ch","b_pl","b_pe","gv_sel", "b_cl"]:
                     if k in st.session_state: del st.session_state[k]
                 st.rerun()
+
+        o1, _ = st.columns([2, 5])
+        with o1:
+            ordem = st.selectbox(
+                "🔀 Ordenar por",
+                ["Recém Adicionado", "Mais Antigo", "Modelo (A-Z)", "Modelo (Z-A)"],
+                key="p_ordem",
+            )
 
         dv = df_gv.copy()
         if flt_sta    != "Todos": dv = dv[dv["status"]        == flt_sta]
@@ -1064,6 +1075,18 @@ def render():
         if s_pl: dv = dv[dv["placa"].astype(str).str.lower().str.contains(s_pl.lower(),  na=False)]
         if s_pe: dv = dv[dv["pedido"].astype(str).str.lower().str.contains(s_pe.lower(), na=False)]
         if s_cl: dv = dv[dv["cliente"].astype(str).str.lower().str.contains(s_cl.lower(), na=False)]
+
+        # ── Ordenação ──────────────────────────────────────────
+        if ordem in ("Recém Adicionado", "Mais Antigo") and "criado_em" in dv.columns:
+            dv = dv.copy()
+            dv["_criado_dt"] = pd.to_datetime(dv["criado_em"], dayfirst=True, errors="coerce")
+            dv = dv.sort_values("_criado_dt", ascending=(ordem == "Mais Antigo"), na_position="last")
+        elif ordem in ("Modelo (A-Z)", "Modelo (Z-A)") and "modelo" in dv.columns:
+            dv = dv.sort_values(
+                "modelo", ascending=(ordem == "Modelo (A-Z)"), na_position="last",
+                key=lambda s: s.astype(str).str.lower(),
+            )
+
         st.markdown(
             f"<p style='color:#94a3b8;font-size:13px;margin:6px 0 10px'>"
             f"<b style='color:{AZUL}'>{len(dv)}</b> veículo(s)</p>",
