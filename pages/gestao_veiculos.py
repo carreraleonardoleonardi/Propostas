@@ -250,6 +250,10 @@ section[data-testid="stMain"] * { font-family: 'Montserrat', sans-serif !importa
     font-size:11px; color:#6b5c45;
 }
 .vcard-cli  { font-size:11px; color:#475569; margin-top:4px; }
+.vcard-opc  { font-size:11px; color:#8a7550; margin-top:5px; line-height:1.4;
+              background:#fdf8f0; border:1px solid #f0e6d2; border-radius:6px;
+              padding:4px 8px; display:inline-block; max-width:100%;
+              word-wrap:break-word; }
 .vcard-right { text-align:right; flex-shrink:0; }
 .vbadge { display:inline-block; padding:4px 13px; border-radius:999px;
            font-size:11px; font-weight:700; color:#fff; white-space:nowrap; }
@@ -1362,6 +1366,10 @@ def render():
             id_txt = f"{farol_idade(id_r)} {id_r}d" if id_r is not None else "⚪ —"
             ativo  = st.session_state.get("gv_sel") == ch_r
 
+            opc_h = (
+                f"<div class='vcard-opc'>🧩 {sv(row,'opcionais')}</div>"
+                if sv(row, "opcionais") != "—" else ""
+            )
             cli_h = (
                 f"<div class='vcard-cli'>👤 <b>{sv(row,'cliente')}</b> · {sv(row,'consultor')}</div>"
                 if sv(row, "cliente") != "—" else ""
@@ -1386,7 +1394,7 @@ def render():
                     f"        <span class='vtag'>🎨 {sv(row,'cor')}</span>"
                     f"        <span class='vtag'>🏢 {sv(row,'locadora')}</span>"
                     + (f"        <span class='vtag'>📄 {sv(row,'pedido')}</span>" if sv(row,'pedido') != '—' else "") +
-                    f"      </div>{cli_h}"
+                    f"      </div>{opc_h}{cli_h}"
                     f"    </div>"
                     f"    <div class='vcard-right'>"
                     f"      <span class='vbadge' style='background:{cor_r}'>{st_r}</span>"
@@ -1782,7 +1790,7 @@ def render():
         if df_ag.empty:
             st.info(f"Nenhum agendamento para {data_str} com os filtros selecionados.")
         else:
-            for _, row in df_ag.iterrows():
+            for idx_row, row in df_ag.iterrows():
                 farol  = row.get("_f", "⚪")
                 cor_st = STATUS_CORES.get(str(row.get("status","")), "#94a3b8")
 
@@ -1840,6 +1848,25 @@ def render():
                             use_container_width=True,
                             key=f"dl_{sv(row,'chassi')}_{sv(row,'hora_entrega')}",
                         )
+                    if pode_editar and sv(row, "status") != "Entregue":
+                        if st.button("✅", key=f"confirmar_ent_{sv(row,'chassi')}_{sv(row,'hora_entrega')}",
+                                     use_container_width=True, type="primary",
+                                     help="Confirmar entrega — muda o status para Entregue"):
+                            agr = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                            linha_num_ag = int(idx_row) + 2
+                            status_anterior = sv(row, "status")
+                            gv_enviar({"aba":"veiculos","acao":"atualizar_linha","linha_num":linha_num_ag,"valores":[
+                                {"col": GV_COLUNAS.index("status")+1,         "valor": "Entregue"},
+                                {"col": GV_COLUNAS.index("atualizado_em")+1,  "valor": agr},
+                                {"col": GV_COLUNAS.index("atualizado_por")+1, "valor": st.session_state.get("auth_nome","Sistema")},
+                            ]})
+                            gv_enviar({"aba":"historico","acao":"inserir","linha":[
+                                sv(row,"id"), sv(row,"chassi"), sv(row,"modelo"),
+                                status_anterior, "Entregue", agr, st.session_state.get("auth_nome","Sistema"),
+                            ]})
+                            gv_carregar.clear()
+                            st.success(f"✅ {sv(row,'modelo')} ({sv(row,'placa')}) marcado como Entregue!")
+                            st.rerun()
 
     # ══════════════════════════════════════════════════════════
     # ABA DASHBOARD
