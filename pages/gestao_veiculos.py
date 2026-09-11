@@ -1383,7 +1383,7 @@ def render():
             )
             ag_h = (
                 f"<div class='vag'>📅 {sv(row,'data_entrega')} {sv(row,'hora_entrega')} · {sv(row,'loja_entrega')}</div>"
-                if st_r == "Agendado" and sv(row, "data_entrega") != "—" else ""
+                if st_r in ("Agendado", "Entregue") and sv(row, "data_entrega") != "—" else ""
             )
 
             # Card + botão lado a lado
