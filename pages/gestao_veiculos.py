@@ -1053,17 +1053,22 @@ def render():
         with b5:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
             if st.button("🧹", use_container_width=True, key="gv_limpar", help="Limpar filtros"):
-                for k in ["p_sta","p_fab","p_loc","p_con","p_mod","p_cor","p_fplaca","p_cond","p_ordem",
+                for k in ["p_sta","p_fab","p_loc","p_con","p_mod","p_cor","p_fplaca","p_cond","p_ordem","p_data_chegada",
                           "b_ch","b_pl","b_pe","gv_sel", "b_cl"]:
                     if k in st.session_state: del st.session_state[k]
                 st.rerun()
 
-        o1, _ = st.columns([2, 5])
+        o1, o2, _ = st.columns([2, 2, 3])
         with o1:
             ordem = st.selectbox(
                 "🔀 Ordenar por",
                 ["Recém Adicionado", "Mais Antigo", "Modelo (A-Z)", "Modelo (Z-A)"],
                 key="p_ordem",
+            )
+        with o2:
+            flt_chegada = st.date_input(
+                "📅 Data de Chegada", value=None, key="p_data_chegada", format="DD/MM/YYYY",
+                help="Mostra só os veículos que chegaram nessa data. Deixe vazio para não filtrar.",
             )
 
         dv = df_gv.copy()
@@ -1079,6 +1084,8 @@ def render():
         if s_pl: dv = dv[dv["placa"].astype(str).str.lower().str.contains(s_pl.lower(),  na=False)]
         if s_pe: dv = dv[dv["pedido"].astype(str).str.lower().str.contains(s_pe.lower(), na=False)]
         if s_cl: dv = dv[dv["cliente"].astype(str).str.lower().str.contains(s_cl.lower(), na=False)]
+        if flt_chegada and "data_chegada" in dv.columns:
+            dv = dv[dv["data_chegada"].apply(parse_data) == flt_chegada]
 
         # ── Ordenação ──────────────────────────────────────────
         if ordem in ("Recém Adicionado", "Mais Antigo") and "criado_em" in dv.columns:

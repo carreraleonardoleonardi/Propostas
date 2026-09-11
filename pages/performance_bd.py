@@ -519,6 +519,26 @@ def _entregas_e_previsao_por_consultor(ini: date, fim: date) -> pd.DataFrame:
     return tab_entregues.merge(tab_previsao, on="consultor", how="outer").fillna(0)
 
 
+@st.cache_data(ttl=180, show_spinner=False)
+def _total_entregas(ini: date, fim: date, consultores=None) -> int:
+    """Total de veículos entregues no período — puxado do estoque (Gestão de Veículos)."""
+    try:
+        df_gv = gv_carregar()
+    except Exception:
+        return 0
+    if df_gv.empty or "status" not in df_gv.columns:
+        return 0
+    df_gv = df_gv.copy()
+    df_gv["_data_entrega_dt"] = df_gv.get("data_entrega", "").apply(parse_data)
+    entregues = df_gv[
+        (df_gv["status"] == "Entregue")
+        & df_gv["_data_entrega_dt"].apply(lambda d: d is not None and ini <= d <= fim)
+    ]
+    if consultores and "consultor" in entregues.columns:
+        entregues = entregues[entregues["consultor"].isin(consultores)]
+    return len(entregues)
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # HELPERS DE PERÍODO
 # ══════════════════════════════════════════════════════════════════════════
@@ -969,15 +989,19 @@ def _render_pagina_indicadores(titulo: str, consultores=None):
         leads_mes_atual = _leads_pescados(mes_ini, mes_fim, consultores)
         leads_mes_ant   = _leads_pescados(mes_ant_ini, mes_ant_fim, consultores)
 
+        entregues_atual = _total_entregas(mes_ini, mes_fim, consultores)
+        entregues_ant   = _total_entregas(mes_ant_ini, mes_ant_fim, consultores)
+
     st.markdown(f'<div class="pf-card-titulo" style="border:none;font-size:14px">{titulo}</div>',
                 unsafe_allow_html=True)
 
-    st.markdown(f"""<div class="pf-kpi-grid">
+    st.markdown(f"""<div class="pf-kpi-grid" style="grid-template-columns:repeat(6,1fr)">
         {_kpi_html("Contratos Assinados", _fmt_num(contratos_atual), contratos_atual, contratos_ant, "✍️")}
         {_kpi_html("Veículos Assinados", _fmt_num(veic_atual), veic_atual, veic_ant, "🚗")}
         {_kpi_html("Leads Gerados (mês)", _fmt_num(leads_ger_atual), leads_ger_atual, leads_ger_ant, "📥")}
         {_kpi_html("Leads Pescados (dia)", _fmt_num(leads_dia_atual), leads_dia_atual, leads_dia_ant, "🎣")}
         {_kpi_html("Leads Pescados (mês)", _fmt_num(leads_mes_atual), leads_mes_atual, leads_mes_ant, "🎯")}
+        {_kpi_html("Entregas (mês)", _fmt_num(entregues_atual), entregues_atual, entregues_ant, "📦")}
     </div>""", unsafe_allow_html=True)
 
     # ── Comparativo mensal: mês atual x mês anterior (grid 2x2) ─────────────
@@ -1375,7 +1399,7 @@ def _gerar_pdf_relatorio() -> bytes:
 
     logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "LOGO_SIGNATURE.png")
 
-    # ── Coleta de dados (reaproveitando as queries já cacheadas) ─────────
+    # ── Coleta de dados — GERAL (reaproveitando as queries já cacheadas) ──
     contratos_atual = _contratos_assinados(mes_ini, mes_fim)
     contratos_ant    = _contratos_assinados(mes_ant_ini, mes_ant_fim)
     veic_atual       = _veiculos_assinados(mes_ini, mes_fim)
@@ -1386,7 +1410,28 @@ def _gerar_pdf_relatorio() -> bytes:
     leads_dia_ant    = _leads_pescados(ontem, ontem)
     leads_mes_atual  = _leads_pescados(mes_ini, mes_fim)
     leads_mes_ant    = _leads_pescados(mes_ant_ini, mes_ant_fim)
+    entregues_atual  = _total_entregas(mes_ini, mes_fim)
+    entregues_ant    = _total_entregas(mes_ant_ini, mes_ant_fim)
 
+    curva_contratos_cmp    = _comparativo_mensal_sf(
+        COL_SF_DATA_ASSIN, f"COUNT(DISTINCT {COL_SF_SUBSCRIBER})", mes_ini, mes_fim, mes_ant_ini, mes_ant_fim)
+    curva_veic_cmp         = _comparativo_mensal_sf(
+        COL_SF_DATA_ASSIN, f"SUM({COL_SF_QTD_VEICULOS})", mes_ini, mes_fim, mes_ant_ini, mes_ant_fim)
+    curva_leads_ger_cmp    = _comparativo_mensal_sf(
+        COL_SF_DATA_CRIACAO, f"COUNT({COL_SF_SUBSCRIBER})", mes_ini, mes_fim, mes_ant_ini, mes_ant_fim)
+    curva_leads_pesc_cmp   = _comparativo_mensal_sf(
+        COL_SF_DATA_CAPTACAO, f"COUNT({COL_SF_SUBSCRIBER})", mes_ini, mes_fim, mes_ant_ini, mes_ant_fim)
+
+    curva_contratos = _curva_contratos(mes_ini, mes_fim)
+
+    rank_geral = _ranking_geral_consultor(mes_ini, mes_fim)
+    if not rank_geral.empty:
+        usuarios_sistema = _usuarios_sistema()
+        usuarios_norm = {_normalizar_nome(u) for u in usuarios_sistema}
+        rank_geral = rank_geral[rank_geral["consultor"].apply(lambda n: _normalizar_nome(n) in usuarios_norm)]
+        rank_geral = rank_geral.sort_values("assinados", ascending=False)
+
+    # ── Coleta de dados — MARKETING ───────────────────────────────────────
     inv_total_atual  = _investimento(mes_ini, mes_fim)
     inv_total_ant    = _investimento(mes_ant_ini, mes_ant_fim)
     inv_google_atual = _investimento(mes_ini, mes_fim, "Google")
@@ -1404,9 +1449,15 @@ def _gerar_pdf_relatorio() -> bytes:
     clr_atual = _safe_div(leads_ger_atual, mkt_atual["impressoes"]) * 100
     cvr_atual = _safe_div(contratos_atual, leads_ger_atual) * 100
 
-    curva_contratos = _curva_contratos(mes_ini, mes_fim)
-    rank_geral = _ranking_consultor(mes_ini, mes_fim)
+    curva_inv_cmp             = _comparativo_mensal_investimento(mes_ini, mes_fim, mes_ant_ini, mes_ant_fim)
+    leads_midia_curva         = _leads_por_midia_dia(mes_ini, mes_fim)
+    conversoes_canal_curva    = _conversoes_por_canal_dia(mes_ini, mes_fim)
+    curva_investimento_plat   = _curva_investimento(mes_ini, mes_fim)
+    if not curva_investimento_plat.empty:
+        curva_investimento_plat = curva_investimento_plat.pivot_table(
+            index="dia", columns="plataforma", values="investimento", aggfunc="sum").fillna(0)
 
+    # ── Coleta de dados — FRENTES ──────────────────────────────────────────
     df_colab = _tabela_colaboradores()
     frentes = sorted(df_colab["frente"].dropna().unique().tolist()) if not df_colab.empty else []
     tabelas_frente = {}
@@ -1425,6 +1476,10 @@ def _gerar_pdf_relatorio() -> bytes:
     )
     st_corpo = ParagraphStyle("corpo", fontName="Helvetica", fontSize=8.5, textColor=C_AZUL, leading=12)
     st_rodape = ParagraphStyle("rodape", fontName="Helvetica", fontSize=7.5, textColor=C_CINZA, alignment=TA_CENTER)
+    st_legenda_grafico = ParagraphStyle(
+        "legendagrafico", fontName="Helvetica-Bold", fontSize=7.5, textColor=C_AZUL,
+        spaceBefore=2, spaceAfter=2, alignment=TA_CENTER,
+    )
 
     def _fmt_var(atual, anterior) -> str:
         if not anterior:
@@ -1455,7 +1510,7 @@ def _gerar_pdf_relatorio() -> bytes:
         ]))
         return t
 
-    def grafico_linha(df: pd.DataFrame, titulo: str, largura=17*cm, altura=6*cm) -> Drawing:
+    def grafico_linha(df: pd.DataFrame, largura=17*cm, altura=6*cm, rotulo_eixo=None) -> Drawing:
         """Gráfico de linha simples a partir de um DataFrame indexado por data/rótulo."""
         drawing = Drawing(largura, altura + 1.2*cm)
         if df is None or df.empty:
@@ -1486,10 +1541,50 @@ def _gerar_pdf_relatorio() -> bytes:
         legend.dx = 8
         legend.dy = 8
         legend.fontSize = 6.5
-        legend.columnMaximum = 1
+        legend.columnMaximum = 2 if len(cols) > 3 else 1
         legend.colorNamePairs = list(zip(paleta[:len(cols)], cols))
         drawing.add(legend)
         return drawing
+
+    def grid_2x2_graficos(itens: list) -> Table:
+        """itens: [(titulo, df), ...] até 4 — monta grade 2x2 de mini-gráficos."""
+        celulas = []
+        for titulo, df in itens:
+            bloco = [Paragraph(titulo, st_legenda_grafico), grafico_linha(df, largura=8.2*cm, altura=4.3*cm)]
+            celulas.append(bloco)
+        linhas = [celulas[i:i+2] for i in range(0, len(celulas), 2)]
+        t = Table(linhas, colWidths=[8.5*cm, 8.5*cm])
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        return t
+
+    def tabela_ranking_geral(df: pd.DataFrame) -> Table:
+        cab = ["Consultor", "Meta", "Ligações", "Leads Pesc.", "Assinados", "Entregues", "Conv."]
+        linhas = [cab]
+        for _, r in df.iterrows():
+            linhas.append([
+                str(r["consultor"])[:26], str(r.get("meta", "—")),
+                f"{int(r['ligacoes'])}", f"{int(r['leads_pescados'])}",
+                f"{int(r['assinados'])}", f"{int(r['entregues'])}",
+                f"{r['conversao']:.1f}%",
+            ])
+        t = Table(linhas, colWidths=[4.6*cm, 1.6*cm, 2.0*cm, 2.2*cm, 2.1*cm, 2.1*cm, 1.9*cm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), C_AZUL),
+            ("TEXTCOLOR", (0, 0), (-1, 0), C_BRANCO),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("TEXTCOLOR", (0, 1), (-1, -1), C_AZUL),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [C_BRANCO, C_CINZA_BG]),
+            ("GRID", (0, 0), (-1, -1), 0.4, C_CINZA_BD),
+            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        return t
 
     def tabela_frente(nome_frente: str, df: pd.DataFrame) -> list:
         elementos = [Paragraph(nome_frente, st_sub_secao)]
@@ -1573,30 +1668,50 @@ def _gerar_pdf_relatorio() -> bytes:
         ["Leads Gerados (mês)", _fmt_num(leads_ger_atual), _fmt_num(leads_ger_ant), _fmt_var(leads_ger_atual, leads_ger_ant)],
         ["Leads Pescados (dia)", _fmt_num(leads_dia_atual), _fmt_num(leads_dia_ant), _fmt_var(leads_dia_atual, leads_dia_ant)],
         ["Leads Pescados (mês)", _fmt_num(leads_mes_atual), _fmt_num(leads_mes_ant), _fmt_var(leads_mes_atual, leads_mes_ant)],
+        ["Entregas (mês)", _fmt_num(entregues_atual), _fmt_num(entregues_ant), _fmt_var(entregues_atual, entregues_ant)],
     ]))
     story.append(Spacer(1, 0.5*cm))
 
+    story.append(Paragraph("Comparativo · Mês Atual vs. Mês Anterior", st_sub_secao))
+    story.append(grid_2x2_graficos([
+        ("Contratos Assinados por dia", curva_contratos_cmp),
+        ("Veículos Assinados por dia", curva_veic_cmp),
+        ("Leads Gerados por dia", curva_leads_ger_cmp),
+        ("Leads Pescados por dia", curva_leads_pesc_cmp),
+    ]))
+
     if not curva_contratos.empty:
-        story.append(Paragraph("Curva de Contratos Assinados no Mês", st_sub_secao))
+        story.append(Paragraph("Curva Acumulada de Contratos no Mês", st_sub_secao))
         df_curva = curva_contratos.set_index("dia")[["contratos"]].rename(columns={"contratos": "Contratos"})
-        story.append(grafico_linha(df_curva, "Contratos"))
+        df_curva["Contratos"] = df_curva["Contratos"].cumsum()
+        story.append(grafico_linha(df_curva))
         story.append(Spacer(1, 0.3*cm))
 
-    if not rank_geral.empty:
-        story.append(Paragraph("Ranking de Consultores (Top 10 — mês atual)", st_sub_secao))
-        cab = ["Consultor", "Leads Gerados", "Leads Pescados", "Contratos"]
-        linhas = [cab] + [
-            [str(r["consultor"])[:34], _fmt_num(r["leads_gerados"]), _fmt_num(r["leads_pescados"]), _fmt_num(r["contratos"])]
-            for _, r in rank_geral.head(10).iterrows()
-        ]
-        story.append(tabela_kpis(linhas, larguras=[7.5*cm, 3.3*cm, 3.3*cm, 3.3*cm]))
+    story.append(PageBreak())
+    story.append(Paragraph("Ranking de Consultores (mês atual)", st_titulo_secao))
+    if rank_geral.empty:
+        story.append(Paragraph("Sem dados no período.", st_corpo))
+    else:
+        story.append(tabela_ranking_geral(rank_geral))
+        story.append(Spacer(1, 0.2*cm))
+        story.append(Paragraph(
+            "Somente consultores cadastrados no sistema · ordenado por Assinados · "
+            "Assinados = quantidade de veículos · Conversão = Leads Pescados ÷ Assinados.",
+            st_rodape,
+        ))
 
     story.append(PageBreak())
 
     # ── Seção Marketing ────────────────────────────────────────────────
     story.append(Paragraph("Marketing", st_titulo_secao))
     story.append(tabela_kpis([
-        ["Indicador", f"{MESES_PT[hoje.month]}/{hoje.year}", f"{MESES_PT[mes_ant_fim.month]}/{mes_ant_fim.year}", "Variação"],
+        ["Volume de Vendas", f"{MESES_PT[hoje.month]}/{hoje.year}", f"{MESES_PT[mes_ant_fim.month]}/{mes_ant_fim.year}", "Variação"],
+        ["Contratos Assinados", _fmt_num(contratos_atual), _fmt_num(contratos_ant), _fmt_var(contratos_atual, contratos_ant)],
+        ["Veículos Assinados", _fmt_num(veic_atual), _fmt_num(veic_ant), _fmt_var(veic_atual, veic_ant)],
+    ]))
+    story.append(Spacer(1, 0.35*cm))
+    story.append(tabela_kpis([
+        ["Investimento", f"{MESES_PT[hoje.month]}/{hoje.year}", f"{MESES_PT[mes_ant_fim.month]}/{mes_ant_fim.year}", "Variação"],
         ["Investimento Total", _fmt_brl(inv_total_atual), _fmt_brl(inv_total_ant), _fmt_var(inv_total_atual, inv_total_ant)],
         ["Investimento Google", _fmt_brl(inv_google_atual), _fmt_brl(inv_google_ant), _fmt_var(inv_google_atual, inv_google_ant)],
         ["Investimento Meta", _fmt_brl(inv_meta_atual), _fmt_brl(inv_meta_ant), _fmt_var(inv_meta_atual, inv_meta_ant)],
@@ -1618,6 +1733,15 @@ def _gerar_pdf_relatorio() -> bytes:
     ], larguras=[5.67*cm]*3))
     story.append(PageBreak())
 
+    story.append(Paragraph("Gráficos · Marketing", st_titulo_secao))
+    story.append(grid_2x2_graficos([
+        ("Investimento Total — Mês Atual x Anterior", curva_inv_cmp),
+        ("Investimento Diário por Plataforma", curva_investimento_plat),
+        ("Volume de Leads por Mídia", leads_midia_curva),
+        ("Volume de Conversões por Canal", conversoes_canal_curva),
+    ]))
+    story.append(PageBreak())
+
     # ── Seção Frentes ──────────────────────────────────────────────────
     if tabelas_frente:
         story.append(Paragraph("Frentes", st_titulo_secao))
@@ -1630,8 +1754,8 @@ def _gerar_pdf_relatorio() -> bytes:
     story.append(Spacer(1, 0.2*cm))
     story.append(Paragraph(
         "Relatório gerado automaticamente a partir do Azure SQL e da Gestão de Veículos. "
-        "Alguns valores (Entregues, Previsão de Entregar) refletem a base de estoque no "
-        "momento da geração.", st_rodape,
+        "Alguns valores (Entregues, Previsão de Entregar, Entregas do mês) refletem a base de "
+        "estoque no momento da geração.", st_rodape,
     ))
 
     doc.build(story)
