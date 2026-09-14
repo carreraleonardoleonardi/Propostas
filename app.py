@@ -51,6 +51,7 @@ from pages.comparativo import render as render_comparativo
 from pages.estoque import render as render_estoque
 from pages.gestao_veiculos import render as render_gestao_veiculos
 from pages.controle_usados import render as render_controle_usados
+from pages.metas import render as render_metas, metas_tem_acesso
 from pages.documentacao import render as render_documentacao
 
 
@@ -1785,6 +1786,7 @@ _TODAS_ABAS = [
     "🚘 Estoque",
     "🚙 Controle Usados",
     "📅 Agenda de Entregas",
+    "🎯 Metas",
     "🔒 Documentação/Criptografia",
     "👥 Usuários",
     "🛠️ Gerenciamento"
@@ -1794,7 +1796,7 @@ _TODAS_ABAS = [
 _abas_render = [
     a
     for a in _TODAS_ABAS
-    if a in abas_permitidas()
+    if a in abas_permitidas() or (a == "🎯 Metas" and metas_tem_acesso())
 ]
 
 
@@ -1861,6 +1863,11 @@ elif _aba_ativa == "📅 Agenda de Entregas":
     # da gestão de veículos
 
     render_gestao_veiculos()
+
+
+elif _aba_ativa == "🎯 Metas":
+
+    render_metas()
 
 
 elif _aba_ativa == "🔒 Documentação/Criptografia":
