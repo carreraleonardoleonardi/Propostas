@@ -1,0 +1,17 @@
+Cole esta linha exatamente na LINHA 1 da aba "notificacoes"
+(uma coluna por célula, na ordem abaixo):
+
+id | tipo | destinatario | mensagem | chassi | modelo | criado_em | data_evento | lida_por
+
+Explicação de cada coluna:
+- id            -> identificador único da notificação (gerado pelo sistema)
+- tipo          -> categoria: novo_estoque | novo_estoque_consultor | entregue | livre_45dias | status_atencao
+- destinatario  -> "TODOS", "STAFF", ou o nome exato de um consultor
+- mensagem      -> texto que aparece pro usuário
+- chassi        -> chassi do veículo relacionado (pode ficar vazio)
+- modelo        -> modelo do veículo relacionado (pode ficar vazio)
+- criado_em     -> data/hora de criação (DD/MM/AAAA HH:MM)
+- data_evento   -> só a data (DD/MM/AAAA) — usada para não duplicar notificações recorrentes no mesmo dia
+- lida_por      -> nomes separados por ";" de quem já marcou como lida
+
+Não precisa preencher nada além do cabeçalho — o sistema grava as linhas sozinho.

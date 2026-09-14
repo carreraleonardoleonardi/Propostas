@@ -40,7 +40,7 @@ def _opcoes_consultores(valor_atual: str | None = None) -> list:
 GV_STATUS_LIST = [
     "Trânsito Livre", "Trânsito Vendido", "Livre",
     "Aguardando Atribuição", "Aguardando Agendamento", "Agendado",
-    "Entregue", "Reagendar", "Avariado", "Distrato",
+    "Entregue", "Reagendar", "Avariado", "Distrato", "Aditivo",
     "Remoção", "Reserva Temporária", "Evento Signature",
 ]
 GV_FABRICANTES  =  ["Volkswagen","Chevrolet","Nissan","Jeep","GWM","GAC","Omoda", "Renault","Hyundai","Toyota","Fiat","Ford","Honda","Citroën","Peugeot","Mitsubishi","Subaru","Chery","JAC","Lexus","Kia","Dodge","BMW","Mercedes-Benz","Audi","Porsche","Volvo","Mini","Land Rover","Jaguar","Alfa Romeo","Aston Martin","Bentley","Rolls-Royce","McLaren","Pagani","Bugatti","Koenigsegg","Zeekr","BYD","Leapmotor"]
@@ -72,6 +72,7 @@ STATUS_CORES = {
     "Reagendar":              "#f59e0b",
     "Avariado":               "#ef4444",
     "Distrato":               "#6b7280",
+    "Aditivo":                "#0ea5e9",
     "Remoção":                "#64748b",
     "Reserva Temporária":     "#a855f7",
     "Evento Signature":       "#ec4899",
@@ -255,6 +256,9 @@ section[data-testid="stMain"] * { font-family: 'Montserrat', sans-serif !importa
               padding:4px 8px; display:inline-block; max-width:100%;
               word-wrap:break-word; }
 .vcard-right { text-align:right; flex-shrink:0; }
+.vcondicao { display:inline-block; padding:2px 10px; border-radius:999px;
+             font-size:10px; font-weight:700; color:#fff; white-space:nowrap;
+             margin-bottom:5px; }
 .vbadge { display:inline-block; padding:4px 13px; border-radius:999px;
            font-size:11px; font-weight:700; color:#fff; white-space:nowrap; }
 .vidade { font-size:11px; color:#94a3b8; margin-top:5px; }
@@ -1385,6 +1389,12 @@ def render():
                 f"<div class='vag'>📅 {sv(row,'data_entrega')} {sv(row,'hora_entrega')} · {sv(row,'loja_entrega')}</div>"
                 if st_r in ("Agendado", "Entregue") and sv(row, "data_entrega") != "—" else ""
             )
+            _cond_val = sv(row, "condicao")
+            _cor_cond = "#b57b3f" if _cond_val == "Zero/Km" else "#64748b"
+            cond_h = (
+                f"<div class='vcondicao' style='background:{_cor_cond}'>{_cond_val}</div>"
+                if _cond_val != "—" else ""
+            )
 
             # Card + botão lado a lado
             col_card, col_btn = st.columns([11, 1])
@@ -1404,6 +1414,7 @@ def render():
                     f"      </div>{opc_h}{cli_h}"
                     f"    </div>"
                     f"    <div class='vcard-right'>"
+                    f"      {cond_h}"
                     f"      <span class='vbadge' style='background:{cor_r}'>{st_r}</span>"
                     f"      <div class='vidade'>{id_txt}</div>{ag_h}"
                     f"    </div>"
@@ -1895,6 +1906,10 @@ def render():
             mes_fim = mes_ini + 2
             return datetime.date(ref.year, mes_ini, 1), mes_fim
 
+        def _mes_anterior_ref(ref):
+            primeiro_dia = datetime.date(ref.year, ref.month, 1)
+            return primeiro_dia - datetime.timedelta(days=1)
+
         df_livres     = df_gv[df_gv["status"] == "Livre"]            if "status" in df_gv.columns else pd.DataFrame()
         df_trans_liv  = df_gv[df_gv["status"] == "Trânsito Livre"]   if "status" in df_gv.columns else pd.DataFrame()
         df_trans_vend = df_gv[df_gv["status"] == "Trânsito Vendido"] if "status" in df_gv.columns else pd.DataFrame()
@@ -1932,6 +1947,12 @@ def render():
         ]
         tri_num = (mes_sel - 1) // 3 + 1
         rotulo_trimestre = f"{tri_num}º Trimestre/{ano_sel}"
+
+        # Mês anterior ao mês de referência selecionado (para comparativo %)
+        mes_ant_ref = _mes_anterior_ref(data_ref_sel)
+        df_entregues_mes_ant = df_entregues[
+            df_entregues["_data_dt"].apply(lambda d: d is not None and d.year == mes_ant_ref.year and d.month == mes_ant_ref.month)
+        ]
 
         # ── KPIs gerais ───────────────────────────────────
         st.markdown(f"""
@@ -2044,8 +2065,43 @@ def render():
             else:
                 rk_mes = (df_entregues_mes.groupby("consultor").size()
                           .reset_index(name="Entregas").sort_values("Entregas", ascending=False))
-                rk_mes.columns = ["Consultor", "Entregas"]
-                st.dataframe(rk_mes, use_container_width=True, hide_index=True, height=280)
+                rk_ant_map = (
+                    df_entregues_mes_ant.groupby("consultor").size().to_dict()
+                    if not df_entregues_mes_ant.empty and "consultor" in df_entregues_mes_ant.columns else {}
+                )
+
+                def _var_html(row):
+                    atual = row["Entregas"]
+                    anterior = rk_ant_map.get(row["consultor"], 0)
+                    if not anterior:
+                        return "—" if not atual else "🆕 novo"
+                    pct = ((atual / anterior) - 1) * 100
+                    if abs(pct) < 0.5:
+                        return f"<span style='color:#94a3b8'>◼ {pct:+.0f}%</span>"
+                    cor = "#16a34a" if pct > 0 else "#dc2626"
+                    seta = "▲" if pct > 0 else "▼"
+                    return f"<span style='color:{cor};font-weight:700'>{seta} {pct:+.0f}%</span>"
+
+                rk_mes["vs mês anterior"] = rk_mes.apply(_var_html, axis=1)
+
+                linhas_html = "".join(
+                    f"<tr><td style='padding:6px 10px'>{r['consultor']}</td>"
+                    f"<td style='padding:6px 10px;text-align:center'>{int(r['Entregas'])}</td>"
+                    f"<td style='padding:6px 10px;text-align:center'>{r['vs mês anterior']}</td></tr>"
+                    for _, r in rk_mes.iterrows()
+                )
+                st.markdown(f"""
+                <div style='max-height:280px;overflow-y:auto;border:1px solid #e8e0d0;border-radius:8px'>
+                <table style='width:100%;border-collapse:collapse;font-size:13px'>
+                    <thead><tr style='background:{AZUL};color:#fff;position:sticky;top:0'>
+                        <th style='padding:8px 10px;text-align:left'>Consultor</th>
+                        <th style='padding:8px 10px'>Entregas</th>
+                        <th style='padding:8px 10px'>vs mês anterior</th>
+                    </tr></thead>
+                    <tbody>{linhas_html}</tbody>
+                </table>
+                </div>
+                """, unsafe_allow_html=True)
         with ev2:
             st.markdown(f"<div style='font-size:11px;font-weight:700;color:{D_ESC};text-transform:uppercase;margin-bottom:6px'>{rotulo_trimestre}</div>", unsafe_allow_html=True)
             if df_entregues_tri.empty or "consultor" not in df_entregues_tri.columns:
