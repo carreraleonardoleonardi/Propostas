@@ -13,6 +13,15 @@ GV_SHEET_URL = "https://docs.google.com/spreadsheets/d/1BpAtiXz4AEuQg4kVx8OFonoh
 GV_WEBHOOK   = "https://script.google.com/macros/s/AKfycbzFP-ezBsVx7W7VhYATKgaqdAg485o0AQb8s9FdGTlvmdzK1YRj7dCUVfTrXNgJOToc/exec"
 SENHA_FECHAMENTO = "#FECHAMENTO"
 
+# ── Solicitação de Atribuição (Pronta Entrega) — exclusivo LM Frotas ─────────
+LOCADORA_ATRIBUICAO_LM = "LM FROTAS"  # precisa bater exatamente com um item de GV_LOCADORAS
+# ⚠️ PREENCHER após criar a aba "solicitacoes" na mesma planilha do estoque
+# (ver Dados/SETUP_SOLICITACAO_ATRIBUICAO.md para o passo a passo completo,
+# incluindo o trecho a adicionar no Apps Script existente para enviar o e-mail).
+SOLIC_SHEET_URL = "https://docs.google.com/spreadsheets/d/1BpAtiXz4AEuQg4kVx8OFonohPlvbScdOgWPIZRxQnxo/export?format=csv&gid=437897037"
+EMAIL_ATRIBUICAO_DESTINATARIOS = ["thalita.gardim@lm-mobilidade.com", "flavia.andrade@lm-mobilidade.com"]
+DN_CARRERA = "PREENCHER: nome e nº da concessionária Carrera"  # ver comentário acima do formulário
+
 
 # ── Consultores (usuários do sistema) ─────────────────────────────────────────
 def _opcoes_consultores(valor_atual: str | None = None) -> list:
@@ -167,6 +176,27 @@ def gv_carregar():
     except:
         return pd.DataFrame(columns=GV_COLUNAS)
 
+SOLIC_COLUNAS = [
+    "id", "data_solicitacao", "pedido", "cliente", "vendedor",
+    "chassi", "modelo", "cor", "placa", "locadora",
+    "solicitado_por", "email_enviado", "data_envio_email",
+]
+
+@st.cache_data(ttl=30)
+def sol_carregar():
+    try:
+        df = pd.read_csv(SOLIC_SHEET_URL, header=0)
+        df.columns = [c.strip().lower() for c in df.columns]
+        for c in SOLIC_COLUNAS:
+            if c not in df.columns:
+                df[c] = ""
+        return df
+    except Exception:
+        return pd.DataFrame(columns=SOLIC_COLUNAS)
+
+def sol_novo_id():
+    return "SOL" + datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
+
 def gv_enviar(payload):
     try:
         requests.post(GV_WEBHOOK, data=json.dumps(payload),
@@ -174,6 +204,26 @@ def gv_enviar(payload):
         return True
     except Exception as e:
         st.error(f"Erro ao salvar: {e}"); return False
+
+def gv_enviar_verificado(payload) -> tuple:
+    """
+    Como gv_enviar, mas lê a resposta JSON do Apps Script e retorna
+    (ok, mensagem_erro). Use quando precisar saber de verdade se a ação
+    aconteceu no servidor (gv_enviar normal ignora a resposta e sempre
+    retorna True se a requisição chegou, mesmo que o script tenha dado erro).
+    """
+    try:
+        resp = requests.post(GV_WEBHOOK, data=json.dumps(payload),
+                              headers={"Content-Type":"text/plain"}, timeout=30)
+        try:
+            corpo = resp.json()
+        except Exception:
+            return True, ""  # resposta não-JSON — não dá pra checar, assume OK
+        if corpo.get("status") == "erro":
+            return False, corpo.get("msg", "erro desconhecido no Apps Script")
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
 def gv_novo_id():
     return "VEI" + datetime.datetime.now().strftime("%Y%m%d%H%M%S")
@@ -869,7 +919,7 @@ def render():
 
     # ── Navegação principal ──────────────────────────────
     if pode_editar:
-        aba_principal = st.tabs(["🚘 Estoque", "📅 Agenda", "📊 Dashboard", "📦 Recebimento", "✉️ E-mail das 11"])
+        aba_principal = st.tabs(["🚘 Estoque", "📅 Agenda", "📊 Dashboard", "📦 Recebimento", "✉️ E-mail das 11", "📨 Solicitações"])
     else:
         aba_principal = st.tabs(["🚘 Estoque", "📅 Agenda", "📊 Dashboard"])
 
@@ -1465,17 +1515,18 @@ def render():
 
                     # Abas de ação — edição restrita a pode_editar
                     if pode_editar:
-                        abas_p = ["🔄 Status", "📅 Agendar", "✏️ Editar", "📋 Detalhes", "🗑️ Deletar"]
+                        abas_p = ["🔄 Status", "📅 Agendar", "✏️ Editar", "🎯 Atribuição", "📋 Detalhes", "🗑️ Deletar"]
                     else:
                         abas_p = ["📋 Detalhes"]
                     tp = st.tabs(abas_p)
 
                     # Índices dinâmicos
-                    idx_status  = 0 if pode_editar else None
-                    idx_agendar = 1 if pode_editar else None
-                    idx_editar  = 2 if pode_editar else None
-                    idx_detalhes= 3 if pode_editar else 0
-                    idx_deletar = 4 if pode_editar else None
+                    idx_status     = 0 if pode_editar else None
+                    idx_agendar    = 1 if pode_editar else None
+                    idx_editar     = 2 if pode_editar else None
+                    idx_atribuicao = 3 if pode_editar else None
+                    idx_detalhes   = 4 if pode_editar else 0
+                    idx_deletar    = 5 if pode_editar else None
 
                     # ── Status ────────────────────────────
                     if pode_editar:
@@ -1669,6 +1720,114 @@ def render():
                                 ok   = gv_enviar({"aba":"veiculos","acao":"atualizar_linha","linha_num":lvm,"valores":vals})
                                 pg3.progress(100, "✓")
                                 if ok: gv_carregar.clear(); st.success("✅ Salvo!"); st.rerun()
+
+                    # ── Atribuição (Pronta Entrega — exclusivo LM Frotas) ──
+                    if pode_editar:
+                      with tp[idx_atribuicao]:
+                        locadora_atual = sv(vm, "locadora")
+                        if locadora_atual != LOCADORA_ATRIBUICAO_LM:
+                            st.info(
+                                f"🔒 Solicitação de Atribuição disponível apenas para veículos da "
+                                f"locadora **{LOCADORA_ATRIBUICAO_LM}**. Este veículo é de "
+                                f"**{locadora_atual}**."
+                            )
+                        else:
+                            st.caption(
+                                "Preencha os dados abaixo — eles atualizam automaticamente o "
+                                "Pedido, Cliente e Consultor deste veículo e disparam um e-mail "
+                                "para a LM com as informações da solicitação."
+                            )
+                            with st.form(f"fp_atrib_{ch_r}"):
+                                hoje_atrib = datetime.date.today()
+                                st.text_input("Data da solicitação", value=hoje_atrib.strftime("%d/%m/%Y"), disabled=True)
+                                at1, at2 = st.columns(2)
+                                with at1: at_pedido = st.text_input("Pedido *")
+                                with at2: at_cliente = st.text_input("Cliente *")
+                                _op_at_vend = _opcoes_consultores()
+                                at_vendedor = st.selectbox("Vendedor *", _op_at_vend)
+
+                                conf_atrib = st.form_submit_button(
+                                    "🎯 Solicitar Atribuição", use_container_width=True, type="primary")
+
+                            if conf_atrib:
+                                if not at_pedido.strip() or not at_cliente.strip() or not at_vendedor.strip():
+                                    st.error("Preencha Pedido, Cliente e Vendedor antes de solicitar.")
+                                else:
+                                    agr_atrib = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                                    pg_at = st.progress(0, "Salvando..."); pg_at.progress(40, "Atualizando veículo...")
+
+                                    # 1) Atualiza Pedido/Cliente/Consultor e move o status:
+                                    #    já chegou na Carrera (data_chegada preenchida) → Aguardando Atribuição
+                                    #    ainda não chegou (sem data_chegada) → Trânsito Vendido
+                                    status_anterior_atrib = sv(vm, "status")
+                                    ja_chegou = sv(vm, "data_chegada") != "—"
+                                    novo_status_atrib = "Aguardando Atribuição" if ja_chegou else "Trânsito Vendido"
+                                    gv_enviar({"aba":"veiculos","acao":"atualizar_linha","linha_num":lvm,"valores":[
+                                        {"col": GV_COLUNAS.index("pedido")+1,        "valor": at_pedido},
+                                        {"col": GV_COLUNAS.index("cliente")+1,       "valor": at_cliente},
+                                        {"col": GV_COLUNAS.index("consultor")+1,     "valor": at_vendedor},
+                                        {"col": GV_COLUNAS.index("status")+1,        "valor": novo_status_atrib},
+                                        {"col": GV_COLUNAS.index("atualizado_em")+1, "valor": agr_atrib},
+                                        {"col": GV_COLUNAS.index("atualizado_por")+1,"valor": st.session_state.get("auth_nome","Sistema")},
+                                    ]})
+                                    gv_enviar({"aba":"historico","acao":"inserir","linha":[
+                                        sv(vm,"id"), sv(vm,"chassi"), sv(vm,"modelo"),
+                                        status_anterior_atrib, novo_status_atrib, agr_atrib,
+                                        st.session_state.get("auth_nome","Sistema"),
+                                    ]})
+
+                                    pg_at.progress(75, "Registrando solicitação e enviando e-mail...")
+
+                                    # 2) Registra na aba "solicitacoes" + dispara e-mail (ver
+                                    #    Dados/SETUP_SOLICITACAO_ATRIBUICAO.md — ação customizada
+                                    #    que precisa existir no Apps Script já usado pelo GV_WEBHOOK).
+                                    corpo_email = (
+                                        f"Data do pedido: {hoje_atrib.strftime('%d/%m/%Y')}\n"
+                                        f"Número do pedido: {at_pedido}\n"
+                                        f"Cliente: {at_cliente}\n"
+                                        f"Modelo do veículo: {sv(vm,'modelo')}\n"
+                                        f"Cor: {sv(vm,'cor')}\n"
+                                        f"Chassi: {sv(vm,'chassi')}\n"
+                                        f"Placa: {sv(vm,'placa')}\n"
+                                        f"DN (nome e nº da concessionária): {DN_CARRERA}\n"
+                                    )
+                                    ok_sol, msg_sol = gv_enviar_verificado({
+                                        "aba": "solicitacoes",
+                                        "acao": "solicitar_atribuicao",
+                                        "dados": {
+                                            "id": sol_novo_id(),
+                                            "data_solicitacao": hoje_atrib.strftime("%d/%m/%Y"),
+                                            "pedido": at_pedido,
+                                            "cliente": at_cliente,
+                                            "vendedor": at_vendedor,
+                                            "chassi": sv(vm,"chassi"),
+                                            "modelo": sv(vm,"modelo"),
+                                            "cor": sv(vm,"cor"),
+                                            "placa": sv(vm,"placa"),
+                                            "locadora": locadora_atual,
+                                            "solicitado_por": st.session_state.get("auth_nome","Sistema"),
+                                            "destinatarios": EMAIL_ATRIBUICAO_DESTINATARIOS,
+                                            "assunto": f"Estoque Avançado _ Pedido {at_pedido}",
+                                            "corpo": corpo_email,
+                                        },
+                                    })
+
+                                    pg_at.progress(100, "✓")
+                                    gv_carregar.clear(); sol_carregar.clear()
+                                    if ok_sol:
+                                        st.success(f"✅ Atribuição solicitada! Pedido/Cliente/Vendedor atualizados, status → **{novo_status_atrib}**, e-mail disparado para a LM.")
+                                        st.session_state["gv_sel"] = None
+                                        st.rerun()
+                                    else:
+                                        st.warning(
+                                            "⚠️ Veículo atualizado (Pedido/Cliente/Vendedor/Status), mas o registro "
+                                            f"da solicitação e/ou o envio do e-mail falharam: **{msg_sol}**\n\n"
+                                            "Confira se a aba `solicitacoes` existe com esse nome exato e se o "
+                                            "Apps Script foi reimplantado como *Nova versão* após a última alteração "
+                                            "(ver Dados/SETUP_SOLICITACAO_ATRIBUICAO.md)."
+                                        )
+                                        # Não fecha o painel nem dá rerun — deixa a mensagem de erro
+                                        # visível pra você conseguir ler antes de tentar de novo.
 
                     # ── Detalhes ──────────────────────────
                     with tp[idx_detalhes]:
@@ -2491,3 +2650,75 @@ def render():
             "Selecione tudo (Ctrl+A) e copie (Ctrl+C)",
             value=texto_final, height=350, key="em_texto_final"
         )
+
+    # ══════════════════════════════════════════════════════════
+    # ABA SOLICITAÇÕES (Atribuição)
+    # ══════════════════════════════════════════════════════════
+    if pode_editar:
+     with aba_principal[5]:
+        st.markdown(
+            f"<h3 style='color:{AZUL};margin:0 0 4px'>📨 Solicitações de Atribuição</h3>"
+            f"<p style='color:#64748b;font-size:13px;margin-bottom:16px'>"
+            f"Histórico de solicitações enviadas pela aba Atribuição — locadora {LOCADORA_ATRIBUICAO_LM}.</p>",
+            unsafe_allow_html=True
+        )
+
+        col_sr, col_sb = st.columns([5, 1])
+        with col_sb:
+            if st.button("🔄 Atualizar", use_container_width=True, key="sol_refresh"):
+                sol_carregar.clear(); st.rerun()
+
+        df_sol = sol_carregar()
+
+        if df_sol.empty:
+            st.info(
+                "Nenhuma solicitação registrada ainda (ou a aba 'solicitacoes' ainda não foi "
+                "configurada — ver Dados/SETUP_SOLICITACAO_ATRIBUICAO.md)."
+            )
+        else:
+            fs1, fs2 = st.columns(2)
+            with fs1:
+                opcoes_status_email = ["Todos"] + sorted(df_sol["email_enviado"].dropna().astype(str).unique().tolist())
+                flt_email = st.selectbox("Status do e-mail", opcoes_status_email, key="sol_flt_email")
+            with fs2:
+                opcoes_vend = ["Todos"] + sorted(df_sol["vendedor"].dropna().astype(str).unique().tolist())
+                flt_vend = st.selectbox("Vendedor", opcoes_vend, key="sol_flt_vend")
+
+            dv_sol = df_sol.copy()
+            if flt_email != "Todos": dv_sol = dv_sol[dv_sol["email_enviado"].astype(str) == flt_email]
+            if flt_vend  != "Todos": dv_sol = dv_sol[dv_sol["vendedor"].astype(str) == flt_vend]
+
+            st.markdown(f"<p style='color:#94a3b8;font-size:13px'><b style='color:{AZUL}'>{len(dv_sol)}</b> solicitação(ões)</p>",
+                        unsafe_allow_html=True)
+
+            for _, r in dv_sol.iloc[::-1].iterrows():
+                email_ok = str(r.get("email_enviado","")).strip().lower() in ("sim", "true", "1", "yes")
+                cor_badge = "#16a34a" if email_ok else "#dc2626"
+                texto_badge = "✅ E-mail enviado" if email_ok else "❌ E-mail não enviado"
+
+                def _sv_sol(campo):
+                    v = r.get(campo, "")
+                    s = str(v).strip()
+                    return "—" if s in ("", "nan", "None", "NaT") else s
+
+                envio_txt = (
+                    f" · e-mail enviado em {_sv_sol('data_envio_email')}"
+                    if email_ok and _sv_sol("data_envio_email") != "—" else ""
+                )
+
+                st.markdown(
+                    f"<div style='background:#fff;border:1px solid #e8e0d0;border-left:4px solid {D_ESC};"
+                    f"border-radius:10px;padding:10px 16px;margin-bottom:6px'>"
+                    f"<b style='color:{AZUL}'>{_sv_sol('modelo')}</b>"
+                    f"&nbsp;·&nbsp; Pedido {_sv_sol('pedido')} &nbsp;·&nbsp; Cliente: {_sv_sol('cliente')}"
+                    f"&nbsp;·&nbsp; Vendedor: {_sv_sol('vendedor')}"
+                    f"<span style='float:right;background:{cor_badge};color:#fff;padding:2px 10px;"
+                    f"border-radius:999px;font-size:11px;font-weight:700'>{texto_badge}</span>"
+                    f"<div style='font-size:11px;color:#94a3b8;margin-top:4px'>"
+                    f"🔑 {_sv_sol('chassi')} · 🪪 {_sv_sol('placa')} ·"
+                    f"Solicitado por {_sv_sol('solicitado_por')} em {_sv_sol('data_solicitacao')}"
+                    f"{envio_txt}"
+                    f"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )

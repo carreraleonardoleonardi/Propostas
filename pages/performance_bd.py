@@ -26,9 +26,12 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 import sqlalchemy as sa
+import plotly.graph_objects as go
 
 from autenticacao import carregar_usuarios, get_col
 from pages.gestao_veiculos import gv_carregar, parse_data
+from pages.metas import metas_carregar as _metas_carregar_sheet, MESES as _METAS_MESES
+from pages.metas import _usuarios_da_frente
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -70,8 +73,13 @@ STATUS_PENDENTE_ENTREGA = {
     "Agendado", "Reagendar",
 }
 
-GESTOR_SANTOS   = "Andrea Bettega Pereira da Costa"
-GESTOR_SAO_PAULO = "Raymond Jose Duque Bello"
+GESTOR_SANTOS   = "Andrea Bettega Pereira da Costa"  # não mais usado p/ filtrar praças (ver FRENTE_*)
+GESTOR_SAO_PAULO = "Raymond Jose Duque Bello"         # mantido só de referência
+
+# Praças São Paulo / Santos agora são definidas pela Frente cadastrada no
+# usuário (planilha de Controle de Usuários), não mais pelo gestor no Azure.
+FRENTE_SANTOS    = "Signature Santos"
+FRENTE_SAO_PAULO = "Signature São Paulo"
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -552,6 +560,17 @@ def _mes_anterior_ref(ref: date) -> date:
     return primeiro_dia - timedelta(days=1)
 
 
+def _periodo_trimestre(ref: date) -> tuple[date, date]:
+    """Retorna (data_inicio, data_fim) do trimestre civil que contém `ref`."""
+    tri = (ref.month - 1) // 3
+    mes_ini = tri * 3 + 1
+    mes_fim_num = mes_ini + 2
+    ini = date(ref.year, mes_ini, 1)
+    ultimo_dia = calendar.monthrange(ref.year, mes_fim_num)[1]
+    fim = date(ref.year, mes_fim_num, ultimo_dia)
+    return ini, fim
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # QUERIES — GERAL
 # ══════════════════════════════════════════════════════════════════════════
@@ -609,13 +628,74 @@ def _ranking_consultor(ini: date, fim: date, consultores=None) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=180, show_spinner=False)
+def _metas_do_mes(ano: int, mes_num: int) -> dict:
+    """Metas Mensais do tipo 'Geral' cadastradas no módulo Metas, por consultor: {consultor: valor}."""
+    try:
+        df_metas = _metas_carregar_sheet()
+    except Exception:
+        return {}
+    if df_metas.empty or "Periodo" not in df_metas.columns:
+        return {}
+    nome_mes = _METAS_MESES[mes_num - 1]
+    filtro = (
+        (df_metas["Tipo_Periodo"].astype(str) == "Mensal")
+        & (df_metas["Ano"].astype(str) == str(ano))
+        & (df_metas["Periodo"].astype(str) == nome_mes)
+        & (df_metas["Tipo_Meta"].astype(str) == "Geral")
+    )
+    df_f = df_metas[filtro]
+    if df_f.empty:
+        return {}
+    valores = pd.to_numeric(df_f["Valor"], errors="coerce").fillna(0)
+    nomes = df_f["Responsavel"].astype(str).str.strip()
+    return dict(zip(nomes, valores))
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def _comissoes_por_consultor(ini: date, fim: date) -> pd.DataFrame:
+    """
+    Soma de Comissão Carrera e Comissão Vendedor (R$) por consultor, com
+    base nos veículos ENTREGUES no período — vem da Gestão de Veículos
+    (campos calculados automaticamente no cadastro/edição do veículo).
+    """
+    cols = ["consultor", "comissao_carrera", "comissao_vendedor"]
+    try:
+        df_gv = gv_carregar()
+    except Exception:
+        return pd.DataFrame(columns=cols)
+    if df_gv.empty or "status" not in df_gv.columns or "consultor" not in df_gv.columns:
+        return pd.DataFrame(columns=cols)
+
+    df_gv = df_gv.copy()
+    df_gv["_data_entrega_dt"] = df_gv.get("data_entrega", "").apply(parse_data)
+    entregues = df_gv[
+        (df_gv["status"] == "Entregue")
+        & df_gv["_data_entrega_dt"].apply(lambda d: d is not None and ini <= d <= fim)
+    ]
+    if entregues.empty:
+        return pd.DataFrame(columns=cols)
+
+    entregues = entregues.copy()
+    entregues["comissao_carrera"] = pd.to_numeric(
+        entregues.get("comissao_carrera", 0), errors="coerce").fillna(0)
+    entregues["comissao_vendedor"] = pd.to_numeric(
+        entregues.get("comissao_vendedor", 0), errors="coerce").fillna(0)
+
+    return entregues.groupby("consultor", as_index=False).agg(
+        comissao_carrera=("comissao_carrera", "sum"),
+        comissao_vendedor=("comissao_vendedor", "sum"),
+    )
+
+
+@st.cache_data(ttl=180, show_spinner=False)
 def _ranking_geral_consultor(ini: date, fim: date, consultores=None) -> pd.DataFrame:
     """
     Ranking completo de consultores do mês — usa RESPONSAVEL (não CONSULTOR)
     como nome, conforme especificado. Colunas: consultor, leads_pescados,
     assinados (soma de veículos, não contagem de contratos), ligacoes
-    (tbUsCall via tbColaboradores.Agente), entregues (Gestão de Veículos) e
-    conversao = leads_pescados / assinados.
+    (tbUsCall via tbColaboradores.Agente), entregues (Gestão de Veículos),
+    comissao_carrera/comissao_vendedor (R$, Gestão de Veículos), meta (do
+    módulo Metas) e conversao = leads_pescados / assinados.
     """
     params = {"ini": ini, "fim": fim}
     filtro = _filtro_consultor(consultores, params, coluna=COL_SF_RESPONSAVEL)
@@ -635,12 +715,15 @@ def _ranking_geral_consultor(ini: date, fim: date, consultores=None) -> pd.DataF
 
     ligacoes = _ligacoes_por_consultor(ini, fim)
     entregas = _entregas_e_previsao_por_consultor(ini, fim)
+    comissoes = _comissoes_por_consultor(ini, fim)
 
     df = df.merge(ligacoes, on="consultor", how="outer")
     if not entregas.empty:
         df = df.merge(entregas[["consultor", "entregues"]], on="consultor", how="outer")
+    if not comissoes.empty:
+        df = df.merge(comissoes, on="consultor", how="outer")
 
-    for c in ["leads_pescados", "assinados", "ligacoes", "entregues"]:
+    for c in ["leads_pescados", "assinados", "ligacoes", "entregues", "comissao_carrera", "comissao_vendedor"]:
         if c not in df.columns:
             df[c] = 0
         df[c] = df[c].fillna(0)
@@ -648,7 +731,11 @@ def _ranking_geral_consultor(ini: date, fim: date, consultores=None) -> pd.DataF
     df["conversao"] = df.apply(
         lambda r: (r["leads_pescados"] / r["assinados"] * 100) if r["assinados"] else 0.0, axis=1
     )
-    df["meta"] = "—"  # Meta do mês — a configurar futuramente
+
+    metas_mes = _metas_do_mes(ini.year, ini.month)
+    df["meta"] = df["consultor"].apply(
+        lambda c: _fmt_num(metas_mes[c]) if c in metas_mes else "—"
+    )
 
     return df.sort_values("assinados", ascending=False)
 
@@ -666,6 +753,94 @@ def _curva_contratos(ini: date, fim: date, consultores=None) -> pd.DataFrame:
         ORDER BY dia
     """
     return _df(sql, params)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _melhor_mes_historico(consultores=None):
+    """(ano, mes, total) do mês com mais contratos assinados já registrado na base."""
+    params = {}
+    filtro = _filtro_consultor(consultores, params)
+    sql = f"""
+        SELECT YEAR({COL_SF_DATA_ASSIN}) AS ano, MONTH({COL_SF_DATA_ASSIN}) AS mes,
+               COUNT(DISTINCT {COL_SF_SUBSCRIBER}) AS total
+        FROM {TBL_SF}
+        WHERE {COL_SF_DATA_ASSIN} IS NOT NULL {filtro}
+        GROUP BY YEAR({COL_SF_DATA_ASSIN}), MONTH({COL_SF_DATA_ASSIN})
+        ORDER BY total DESC
+    """
+    df = _df(sql, params)
+    if df.empty:
+        return None
+    r = df.iloc[0]
+    return int(r["ano"]), int(r["mes"]), int(r["total"])
+
+
+def _curva_acumulada_3(mes_ini: date, mes_fim: date, mes_ant_ini: date, mes_ant_fim: date,
+                        consultores=None):
+    """
+    Monta DataFrame de contratos ACUMULADOS por dia-do-mês com 3 séries:
+    mês atual, mês anterior, e o melhor mês já registrado (recorde histórico).
+    Retorna (df, rotulo_atual, rotulo_anterior, rotulo_melhor).
+    """
+    curva_atual = _curva_contratos(mes_ini, mes_fim, consultores)
+    curva_ant   = _curva_contratos(mes_ant_ini, mes_ant_fim, consultores)
+
+    melhor = _melhor_mes_historico(consultores)
+    melhor_fim_dia = 0
+    if melhor:
+        ano_b, mes_b, _total_b = melhor
+        melhor_ini, melhor_fim = _periodo_mes(date(ano_b, mes_b, 1))
+        curva_melhor = _curva_contratos(melhor_ini, melhor_fim, consultores)
+        label_melhor = f"{MESES_PT[mes_b]}/{ano_b} (recorde)"
+        melhor_fim_dia = melhor_fim.day
+    else:
+        curva_melhor = pd.DataFrame()
+        label_melhor = "Melhor mês (sem dados)"
+
+    label_atual = f"{MESES_PT[mes_fim.month]}/{mes_fim.year}"
+    label_ant   = f"{MESES_PT[mes_ant_fim.month]}/{mes_ant_fim.year}"
+
+    ultimo_dia = max(mes_fim.day, mes_ant_fim.day, melhor_fim_dia, 1)
+    base = pd.DataFrame({"dia_mes": range(1, ultimo_dia + 1)}).set_index("dia_mes")
+
+    def _prep(curva_df):
+        serie = pd.Series(0, index=base.index, dtype=float)
+        if curva_df is not None and not curva_df.empty:
+            c = curva_df.copy()
+            c["dia_mes"] = pd.to_datetime(c["dia"]).dt.day
+            c = c.set_index("dia_mes")["contratos"]
+            serie.update(c)
+        return serie.cumsum()
+
+    base[label_atual]  = _prep(curva_atual)
+    base[label_ant]    = _prep(curva_ant)
+    base[label_melhor] = _prep(curva_melhor)
+
+    return base, label_atual, label_ant, label_melhor
+
+
+def _plotly_curva_acumulada(df: pd.DataFrame, label_atual: str, label_ant: str, label_melhor: str) -> go.Figure:
+    """Gráfico Plotly com as 3 curvas acumuladas + rótulo numérico em cada ponto."""
+    cores = {label_atual: DOURADO, label_ant: AZUL2, label_melhor: VERDE}
+    fig = go.Figure()
+    for col in [label_melhor, label_ant, label_atual]:  # desenha o atual por último (fica por cima)
+        if col not in df.columns:
+            continue
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df[col], mode="lines+markers+text", name=col,
+            line=dict(color=cores.get(col, CINZA), width=2.5),
+            marker=dict(size=5, color=cores.get(col, CINZA)),
+            text=df[col].astype(int).astype(str), textposition="top center",
+            textfont=dict(size=9, color=cores.get(col, CINZA)),
+        ))
+    fig.update_layout(
+        height=340, margin=dict(l=10, r=10, t=10, b=10),
+        xaxis_title="Dia do mês", yaxis_title="Contratos acumulados",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        plot_bgcolor="white", paper_bgcolor="white",
+        xaxis=dict(gridcolor="#f0ebe2"), yaxis=dict(gridcolor="#f0ebe2"),
+    )
+    return fig
 
 
 MESES_PT = {
@@ -942,7 +1117,7 @@ def _tabela_ranking(df: pd.DataFrame) -> str:
 
 
 def _tabela_ranking_geral_html(df: pd.DataFrame) -> str:
-    """Ranking completo: Consultor, Meta, Ligações, Leads Pescados, Assinados (veículos), Entregues, Conversão."""
+    """Ranking completo: Consultor, Meta, Ligações, Leads Pescados, Assinados, Entregues, Conversão, Comissões (R$)."""
     rows = ""
     for _, r in df.iterrows():
         nome = str(r["consultor"])
@@ -955,11 +1130,14 @@ def _tabela_ranking_geral_html(df: pd.DataFrame) -> str:
             f"<td>{_fmt_num(r.get('leads_pescados', 0))}</td>"
             f"<td>{_fmt_num(r.get('assinados', 0))}</td>"
             f"<td>{_fmt_num(r.get('entregues', 0))}</td>"
-            f"<td><b>{r.get('conversao', 0):.1f}%</b></td></tr>"
+            f"<td><b>{r.get('conversao', 0):.1f}%</b></td>"
+            f"<td>{_fmt_brl(r.get('comissao_carrera', 0))}</td>"
+            f"<td>{_fmt_brl(r.get('comissao_vendedor', 0))}</td></tr>"
         )
     return f"""<table class="pf-tabela">
         <thead><tr><th>Consultor</th><th>Meta do Mês</th><th>Ligações</th>
-        <th>Leads Pescados</th><th>Assinados</th><th>Entregues</th><th>Conversão</th></tr></thead>
+        <th>Leads Pescados</th><th>Assinados</th><th>Entregues</th><th>Conversão</th>
+        <th>Comissão Carrera</th><th>Comissão Vendedor</th></tr></thead>
         <tbody>{rows}</tbody></table>"""
 
 
@@ -1050,17 +1228,19 @@ def _render_pagina_indicadores(titulo: str, consultores=None):
         st.line_chart(curva_leads_pesc_cmp, height=220)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Curva acumulada de contratos ─────────────────────────────────────
+    # ── Curva acumulada de contratos — mês atual x anterior x recorde ────
     st.markdown('<div class="pf-card">', unsafe_allow_html=True)
-    st.markdown('<div class="pf-card-titulo">📈 Curva Acumulada de Contratos (mês atual)</div>',
+    st.markdown('<div class="pf-card-titulo">📈 Curva Acumulada de Contratos — Mês Atual × Mês Anterior × Melhor Mês</div>',
                 unsafe_allow_html=True)
-    curva = _curva_contratos(mes_ini, mes_fim, consultores)
-    if curva.empty:
-        st.info("Sem contratos assinados no período.")
+    with st.spinner("Buscando o melhor mês já registrado..."):
+        df_acc, lbl_atual, lbl_ant, lbl_melhor = _curva_acumulada_3(
+            mes_ini, mes_fim, mes_ant_ini, mes_ant_fim, consultores)
+    if df_acc.empty or df_acc.sum().sum() == 0:
+        st.info("Sem contratos assinados suficientes para montar a curva.")
     else:
-        curva = curva.set_index("dia")
-        curva["acumulado"] = curva["contratos"].cumsum()
-        st.line_chart(curva[["acumulado"]], height=240, color=DOURADO)
+        st.plotly_chart(_plotly_curva_acumulada(df_acc, lbl_atual, lbl_ant, lbl_melhor),
+                        use_container_width=True, key=f"plotly_acc_{titulo}")
+        st.caption(f"🟡 {lbl_atual} (mês atual) · 🔵 {lbl_ant} (mês anterior) · 🟢 {lbl_melhor}")
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
@@ -1082,13 +1262,39 @@ def _render_pagina_indicadores(titulo: str, consultores=None):
     if rank_geral.empty:
         st.info("Sem dados no período.")
     else:
-        st.markdown(_tabela_ranking_geral_html(rank_geral), unsafe_allow_html=True)
+        rank_com_assinatura = rank_geral[rank_geral["assinados"] > 0]
+        rank_sem_assinatura = rank_geral[rank_geral["assinados"] == 0]
+
+        st.markdown(f'<div class="pf-card-titulo" style="border:none;font-size:13px;margin-top:4px;color:{VERDE}">'
+                    f'✅ Com Assinatura no Mês ({len(rank_com_assinatura)})</div>', unsafe_allow_html=True)
+        if rank_com_assinatura.empty:
+            st.info("Nenhum consultor com assinatura no período.")
+        else:
+            st.markdown(_tabela_ranking_geral_html(rank_com_assinatura), unsafe_allow_html=True)
+
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+        st.markdown(f'<div class="pf-card-titulo" style="border:none;font-size:13px;color:{VERMELHO}">'
+                    f'⚠️ Sem Assinatura no Mês ({len(rank_sem_assinatura)})</div>', unsafe_allow_html=True)
+        if rank_sem_assinatura.empty:
+            st.success("Todos os consultores têm ao menos 1 assinatura no período. 🎉")
+        else:
+            st.markdown(_tabela_ranking_geral_html(rank_sem_assinatura), unsafe_allow_html=True)
+
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        tot_carrera  = rank_geral["comissao_carrera"].sum()
+        tot_vendedor = rank_geral["comissao_vendedor"].sum()
+        st.markdown(
+            f"<div style='margin-top:8px;font-size:13px;color:{AZUL};font-weight:700'>"
+            f"💰 Total do mês — Comissão Carrera: {_fmt_brl(tot_carrera)} &nbsp;·&nbsp; "
+            f"Comissão Vendedor: {_fmt_brl(tot_vendedor)}</div>",
+            unsafe_allow_html=True,
+        )
         st.caption(
             "Somente consultores cadastrados no sistema · ordenado por Assinados (maior → menor) · "
             "Assinados = quantidade de veículos (não de contratos) · "
-            "Entregues vem da Gestão de Veículos · "
+            "Entregues e Comissões vêm da Gestão de Veículos (veículos entregues no mês) · "
             "Conversão = Leads Pescados ÷ Assinados · "
-            "Meta do Mês ainda não configurada."
+            "Meta do Mês vem do módulo Metas (meta 'Geral' Mensal do responsável)."
         )
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1422,7 +1628,8 @@ def _gerar_pdf_relatorio() -> bytes:
     curva_leads_pesc_cmp   = _comparativo_mensal_sf(
         COL_SF_DATA_CAPTACAO, f"COUNT({COL_SF_SUBSCRIBER})", mes_ini, mes_fim, mes_ant_ini, mes_ant_fim)
 
-    curva_contratos = _curva_contratos(mes_ini, mes_fim)
+    curva_acc_3, lbl_acc_atual, lbl_acc_ant, lbl_acc_melhor = _curva_acumulada_3(
+        mes_ini, mes_fim, mes_ant_ini, mes_ant_fim)
 
     rank_geral = _ranking_geral_consultor(mes_ini, mes_fim)
     if not rank_geral.empty:
@@ -1457,13 +1664,75 @@ def _gerar_pdf_relatorio() -> bytes:
         curva_investimento_plat = curva_investimento_plat.pivot_table(
             index="dia", columns="plataforma", values="investimento", aggfunc="sum").fillna(0)
 
-    # ── Coleta de dados — FRENTES ──────────────────────────────────────────
-    df_colab = _tabela_colaboradores()
-    frentes = sorted(df_colab["frente"].dropna().unique().tolist()) if not df_colab.empty else []
-    tabelas_frente = {}
-    for frente in frentes[:8]:  # limite razoável de páginas
-        consultores_frente = sorted(df_colab[df_colab["frente"] == frente]["nome"].dropna().unique().tolist())
-        tabelas_frente[frente] = _montar_tabela_frente(mes_ini, mes_fim, consultores_frente)
+    # ── Coleta de dados — ENTREGAS POR VENDEDOR (mês x trimestre) ──────────
+    tri_ini, tri_fim = _periodo_trimestre(hoje)
+    tri_num = (hoje.month - 1) // 3 + 1
+    rotulo_tri = f"{tri_num}º Trimestre/{hoje.year}"
+
+    entregas_mes_df = _entregas_e_previsao_por_consultor(mes_ini, mes_fim)
+    entregas_tri_df = _entregas_e_previsao_por_consultor(tri_ini, tri_fim)
+
+    _usuarios_sist_pdf = _usuarios_sistema()
+    _usuarios_norm_pdf = {_normalizar_nome(u) for u in _usuarios_sist_pdf}
+
+    if not entregas_mes_df.empty:
+        entregas_mes_df = entregas_mes_df[
+            entregas_mes_df["consultor"].apply(lambda c: _normalizar_nome(c) in _usuarios_norm_pdf)
+        ].sort_values("entregues", ascending=False)
+    if not entregas_tri_df.empty:
+        entregas_tri_df = entregas_tri_df[
+            entregas_tri_df["consultor"].apply(lambda c: _normalizar_nome(c) in _usuarios_norm_pdf)
+        ].sort_values("entregues", ascending=False)
+
+    top3_vendedores = entregas_mes_df.head(3) if not entregas_mes_df.empty else entregas_mes_df
+
+    # ── Coleta de dados — PRAÇAS (Operação Geral / São Paulo / Santos) ─────
+    df_usuarios_pdf   = carregar_usuarios()
+    equipe_santos_pdf = _usuarios_da_frente(df_usuarios_pdf, FRENTE_SANTOS)
+    equipe_sp_pdf     = _usuarios_da_frente(df_usuarios_pdf, FRENTE_SAO_PAULO)
+    equipe_operacao_pdf = sorted(set(equipe_santos_pdf) | set(equipe_sp_pdf))
+
+    pracas_pdf = [
+        ("Operação Geral · Consultores Santos + São Paulo", equipe_operacao_pdf),
+        (f"São Paulo · Consultores da Frente {FRENTE_SAO_PAULO}", equipe_sp_pdf),
+        (f"Santos · Consultores da Frente {FRENTE_SANTOS}", equipe_santos_pdf),
+    ]
+
+    def _coletar_dados_praca(consultores_praca):
+        """Recalcula os mesmos indicadores da seção Geral, filtrados por uma lista de consultores."""
+        d = {}
+        d["contratos_atual"] = _contratos_assinados(mes_ini, mes_fim, consultores_praca)
+        d["contratos_ant"]   = _contratos_assinados(mes_ant_ini, mes_ant_fim, consultores_praca)
+        d["veic_atual"]      = _veiculos_assinados(mes_ini, mes_fim, consultores_praca)
+        d["veic_ant"]        = _veiculos_assinados(mes_ant_ini, mes_ant_fim, consultores_praca)
+        d["leads_ger_atual"] = _leads_gerados(mes_ini, mes_fim, consultores_praca)
+        d["leads_ger_ant"]   = _leads_gerados(mes_ant_ini, mes_ant_fim, consultores_praca)
+        d["leads_dia_atual"] = _leads_pescados(hoje, hoje, consultores_praca)
+        d["leads_dia_ant"]   = _leads_pescados(ontem, ontem, consultores_praca)
+        d["leads_mes_atual"] = _leads_pescados(mes_ini, mes_fim, consultores_praca)
+        d["leads_mes_ant"]   = _leads_pescados(mes_ant_ini, mes_ant_fim, consultores_praca)
+        d["entregues_atual"] = _total_entregas(mes_ini, mes_fim, consultores_praca)
+        d["entregues_ant"]   = _total_entregas(mes_ant_ini, mes_ant_fim, consultores_praca)
+        d["curva_contratos_cmp"] = _comparativo_mensal_sf(
+            COL_SF_DATA_ASSIN, f"COUNT(DISTINCT {COL_SF_SUBSCRIBER})",
+            mes_ini, mes_fim, mes_ant_ini, mes_ant_fim, consultores_praca)
+        d["curva_veic_cmp"] = _comparativo_mensal_sf(
+            COL_SF_DATA_ASSIN, f"SUM({COL_SF_QTD_VEICULOS})",
+            mes_ini, mes_fim, mes_ant_ini, mes_ant_fim, consultores_praca)
+        d["curva_leads_ger_cmp"] = _comparativo_mensal_sf(
+            COL_SF_DATA_CRIACAO, f"COUNT({COL_SF_SUBSCRIBER})",
+            mes_ini, mes_fim, mes_ant_ini, mes_ant_fim, consultores_praca)
+        d["curva_leads_pesc_cmp"] = _comparativo_mensal_sf(
+            COL_SF_DATA_CAPTACAO, f"COUNT({COL_SF_SUBSCRIBER})",
+            mes_ini, mes_fim, mes_ant_ini, mes_ant_fim, consultores_praca)
+        rank = _ranking_geral_consultor(mes_ini, mes_fim, consultores_praca)
+        if not rank.empty:
+            rank = rank[rank["consultor"].apply(lambda c: _normalizar_nome(c) in _usuarios_norm_pdf)]
+            rank = rank.sort_values("assinados", ascending=False)
+        d["rank"] = rank
+        return d
+
+    dados_pracas_pdf = [(titulo, _coletar_dados_praca(cons)) for titulo, cons in pracas_pdf]
 
     # ── Estilos ────────────────────────────────────────────────────────
     st_titulo_secao = ParagraphStyle(
@@ -1562,26 +1831,27 @@ def _gerar_pdf_relatorio() -> bytes:
         return t
 
     def tabela_ranking_geral(df: pd.DataFrame) -> Table:
-        cab = ["Consultor", "Meta", "Ligações", "Leads Pesc.", "Assinados", "Entregues", "Conv."]
+        cab = ["Consultor", "Meta", "Ligações", "Leads Pesc.", "Assinados", "Entregues", "Conv.", "Com. Carrera", "Com. Vendedor"]
         linhas = [cab]
         for _, r in df.iterrows():
             linhas.append([
-                str(r["consultor"])[:26], str(r.get("meta", "—")),
+                str(r["consultor"])[:22], str(r.get("meta", "—")),
                 f"{int(r['ligacoes'])}", f"{int(r['leads_pescados'])}",
                 f"{int(r['assinados'])}", f"{int(r['entregues'])}",
                 f"{r['conversao']:.1f}%",
+                _fmt_brl(r.get("comissao_carrera", 0)), _fmt_brl(r.get("comissao_vendedor", 0)),
             ])
-        t = Table(linhas, colWidths=[4.6*cm, 1.6*cm, 2.0*cm, 2.2*cm, 2.1*cm, 2.1*cm, 1.9*cm], repeatRows=1)
+        t = Table(linhas, colWidths=[3.3*cm, 1.3*cm, 1.6*cm, 1.8*cm, 1.7*cm, 1.7*cm, 1.5*cm, 2.3*cm, 2.3*cm], repeatRows=1)
         t.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), C_AZUL),
             ("TEXTCOLOR", (0, 0), (-1, 0), C_BRANCO),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("FONTSIZE", (0, 0), (-1, -1), 6.8),
             ("TEXTCOLOR", (0, 1), (-1, -1), C_AZUL),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [C_BRANCO, C_CINZA_BG]),
             ("GRID", (0, 0), (-1, -1), 0.4, C_CINZA_BD),
             ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
             ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
         return t
@@ -1680,11 +1950,13 @@ def _gerar_pdf_relatorio() -> bytes:
         ("Leads Pescados por dia", curva_leads_pesc_cmp),
     ]))
 
-    if not curva_contratos.empty:
-        story.append(Paragraph("Curva Acumulada de Contratos no Mês", st_sub_secao))
-        df_curva = curva_contratos.set_index("dia")[["contratos"]].rename(columns={"contratos": "Contratos"})
-        df_curva["Contratos"] = df_curva["Contratos"].cumsum()
-        story.append(grafico_linha(df_curva))
+    if not curva_acc_3.empty and curva_acc_3.sum().sum() > 0:
+        story.append(Paragraph("Curva Acumulada — Mês Atual × Mês Anterior × Melhor Mês", st_sub_secao))
+        story.append(grafico_linha(curva_acc_3))
+        story.append(Paragraph(
+            f"Dourado: {lbl_acc_atual} (mês atual) · Azul-escuro: {lbl_acc_ant} (mês anterior) · "
+            f"Verde: {lbl_acc_melhor}", st_rodape,
+        ))
         story.append(Spacer(1, 0.3*cm))
 
     story.append(PageBreak())
@@ -1692,7 +1964,22 @@ def _gerar_pdf_relatorio() -> bytes:
     if rank_geral.empty:
         story.append(Paragraph("Sem dados no período.", st_corpo))
     else:
-        story.append(tabela_ranking_geral(rank_geral))
+        rank_com_assin = rank_geral[rank_geral["assinados"] > 0]
+        rank_sem_assin = rank_geral[rank_geral["assinados"] == 0]
+
+        story.append(Paragraph(f"Com Assinatura no Mês ({len(rank_com_assin)})", st_sub_secao))
+        if rank_com_assin.empty:
+            story.append(Paragraph("Nenhum consultor com assinatura no período.", st_corpo))
+        else:
+            story.append(tabela_ranking_geral(rank_com_assin))
+        story.append(Spacer(1, 0.4*cm))
+
+        story.append(Paragraph(f"Sem Assinatura no Mês ({len(rank_sem_assin)})", st_sub_secao))
+        if rank_sem_assin.empty:
+            story.append(Paragraph("Todos os consultores têm ao menos 1 assinatura no período.", st_corpo))
+        else:
+            story.append(tabela_ranking_geral(rank_sem_assin))
+
         story.append(Spacer(1, 0.2*cm))
         story.append(Paragraph(
             "Somente consultores cadastrados no sistema · ordenado por Assinados · "
@@ -1742,12 +2029,108 @@ def _gerar_pdf_relatorio() -> bytes:
     ]))
     story.append(PageBreak())
 
-    # ── Seção Frentes ──────────────────────────────────────────────────
-    if tabelas_frente:
-        story.append(Paragraph("Frentes", st_titulo_secao))
-        for nome_frente, df_frente in tabelas_frente.items():
-            story.append(KeepTogether(tabela_frente(nome_frente, df_frente)))
-            story.append(Spacer(1, 0.45*cm))
+    # ── Seção Entregas por Vendedor (Top 3 + Mês x Trimestre) ───────────
+    def _tabela_simples_entregas(df_ent, largura_nome=6*cm):
+        cab = [["Consultor", "Entregas"]]
+        if df_ent is None or df_ent.empty:
+            linhas = cab + [["Sem entregas no período.", "—"]]
+        else:
+            linhas = cab + [[str(r["consultor"])[:34], f"{int(r['entregues'])}"] for _, r in df_ent.iterrows()]
+        t = Table(linhas, colWidths=[largura_nome, 3.3*cm], repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), C_AZUL),
+            ("TEXTCOLOR", (0, 0), (-1, 0), C_BRANCO),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("TEXTCOLOR", (0, 1), (-1, -1), C_AZUL),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [C_BRANCO, C_CINZA_BG]),
+            ("GRID", (0, 0), (-1, -1), 0.4, C_CINZA_BD),
+            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        return t
+
+    story.append(Paragraph("Entregas por Vendedor", st_titulo_secao))
+
+    story.append(Paragraph(f"Top 3 Vendedores — {MESES_PT[hoje.month]}/{hoje.year}", st_sub_secao))
+    if top3_vendedores.empty:
+        story.append(Paragraph("Nenhuma entrega no mês ainda.", st_corpo))
+    else:
+        medalhas_pdf = ["1º lugar", "2º lugar", "3º lugar"]
+        linhas_top3 = [["Posição", "Consultor", "Entregas"]]
+        for i, (_, r) in enumerate(top3_vendedores.iterrows()):
+            linhas_top3.append([medalhas_pdf[i] if i < 3 else f"{i+1}º", str(r["consultor"])[:30], f"{int(r['entregues'])}"])
+        t_top3 = Table(linhas_top3, colWidths=[3.5*cm, 7*cm, 3.3*cm], repeatRows=1)
+        t_top3.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), C_AZUL),
+            ("TEXTCOLOR", (0, 0), (-1, 0), C_BRANCO),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 1), (-1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("TEXTCOLOR", (0, 1), (-1, -1), C_AZUL),
+            ("BACKGROUND", (0, 1), (-1, 1), C_DOURADO2),
+            ("ROWBACKGROUNDS", (0, 2), (-1, -1), [C_BRANCO, C_CINZA_BG]),
+            ("GRID", (0, 0), (-1, -1), 0.4, C_CINZA_BD),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(t_top3)
+    story.append(Spacer(1, 0.5*cm))
+
+    story.append(Paragraph("Entregas por Vendedor — Mês Atual x Trimestre Atual", st_sub_secao))
+    tabela_dupla = Table([[
+        [Paragraph(f"{MESES_PT[hoje.month]}/{hoje.year}", st_legenda_grafico), _tabela_simples_entregas(entregas_mes_df, largura_nome=5*cm)],
+        [Paragraph(rotulo_tri, st_legenda_grafico), _tabela_simples_entregas(entregas_tri_df, largura_nome=5*cm)],
+    ]], colWidths=[8.5*cm, 8.5*cm])
+    tabela_dupla.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(tabela_dupla)
+    story.append(PageBreak())
+
+    # ── Seções por Praça (Operação Geral / São Paulo / Santos) ──────────
+    for titulo_praca, d in dados_pracas_pdf:
+        story.append(Paragraph(titulo_praca, st_titulo_secao))
+        story.append(tabela_kpis([
+            ["Indicador", f"{MESES_PT[hoje.month]}/{hoje.year}", f"{MESES_PT[mes_ant_fim.month]}/{mes_ant_fim.year}", "Variação"],
+            ["Contratos Assinados", _fmt_num(d["contratos_atual"]), _fmt_num(d["contratos_ant"]), _fmt_var(d["contratos_atual"], d["contratos_ant"])],
+            ["Veículos Assinados", _fmt_num(d["veic_atual"]), _fmt_num(d["veic_ant"]), _fmt_var(d["veic_atual"], d["veic_ant"])],
+            ["Leads Gerados (mês)", _fmt_num(d["leads_ger_atual"]), _fmt_num(d["leads_ger_ant"]), _fmt_var(d["leads_ger_atual"], d["leads_ger_ant"])],
+            ["Leads Pescados (dia)", _fmt_num(d["leads_dia_atual"]), _fmt_num(d["leads_dia_ant"]), _fmt_var(d["leads_dia_atual"], d["leads_dia_ant"])],
+            ["Leads Pescados (mês)", _fmt_num(d["leads_mes_atual"]), _fmt_num(d["leads_mes_ant"]), _fmt_var(d["leads_mes_atual"], d["leads_mes_ant"])],
+            ["Entregas (mês)", _fmt_num(d["entregues_atual"]), _fmt_num(d["entregues_ant"]), _fmt_var(d["entregues_atual"], d["entregues_ant"])],
+        ]))
+        story.append(Spacer(1, 0.4*cm))
+
+        story.append(Paragraph("Comparativo · Mês Atual vs. Mês Anterior", st_sub_secao))
+        story.append(grid_2x2_graficos([
+            ("Contratos Assinados por dia", d["curva_contratos_cmp"]),
+            ("Veículos Assinados por dia", d["curva_veic_cmp"]),
+            ("Leads Gerados por dia", d["curva_leads_ger_cmp"]),
+            ("Leads Pescados por dia", d["curva_leads_pesc_cmp"]),
+        ]))
+
+        story.append(Paragraph("Ranking de Consultores", st_sub_secao))
+        if d["rank"].empty:
+            story.append(Paragraph("Sem dados no período.", st_corpo))
+        else:
+            rank_praca_com = d["rank"][d["rank"]["assinados"] > 0]
+            rank_praca_sem = d["rank"][d["rank"]["assinados"] == 0]
+            story.append(Paragraph(f"Com Assinatura no Mês ({len(rank_praca_com)})", st_sub_secao))
+            if rank_praca_com.empty:
+                story.append(Paragraph("Nenhum consultor com assinatura no período.", st_corpo))
+            else:
+                story.append(tabela_ranking_geral(rank_praca_com))
+            story.append(Spacer(1, 0.3*cm))
+            story.append(Paragraph(f"Sem Assinatura no Mês ({len(rank_praca_sem)})", st_sub_secao))
+            if rank_praca_sem.empty:
+                story.append(Paragraph("Todos os consultores têm ao menos 1 assinatura no período.", st_corpo))
+            else:
+                story.append(tabela_ranking_geral(rank_praca_sem))
+        story.append(PageBreak())
 
     story.append(Spacer(1, 0.6*cm))
     story.append(HRFlowable(width="100%", color=C_CINZA_BD, thickness=0.6))
@@ -1860,7 +2243,7 @@ def render():
 
     pagina = st.radio(
         "Página",
-        ["🏠 Geral", "🧭 Frentes", "📣 Marketing", "🏢 Operação Geral", "🌆 São Paulo", "⚓ Santos"],
+        ["🏠 Geral", "📣 Marketing", "🏢 Operação Geral", "🌆 São Paulo", "⚓ Santos"],
         horizontal=True, label_visibility="collapsed", key="pf_pagina",
     )
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
@@ -1868,30 +2251,28 @@ def render():
     if pagina == "🏠 Geral":
         _render_pagina_indicadores("Visão Geral · Todos os Consultores")
 
-    elif pagina == "🧭 Frentes":
-        _render_pagina_frentes()
-
     elif pagina == "📣 Marketing":
         _render_pagina_marketing()
 
     elif pagina == "🏢 Operação Geral":
-        santos = _consultores_por_gestor(GESTOR_SANTOS)
-        sp     = _consultores_por_gestor(GESTOR_SAO_PAULO)
+        df_usuarios_op = carregar_usuarios()
+        santos = _usuarios_da_frente(df_usuarios_op, FRENTE_SANTOS)
+        sp     = _usuarios_da_frente(df_usuarios_op, FRENTE_SAO_PAULO)
         equipe_operacao = sorted(set(santos) | set(sp))
         _render_pagina_indicadores(
             "Operação Geral · Consultores Santos + São Paulo", equipe_operacao
         )
 
     elif pagina == "🌆 São Paulo":
-        equipe_sp = _consultores_por_gestor(GESTOR_SAO_PAULO)
+        equipe_sp = _usuarios_da_frente(carregar_usuarios(), FRENTE_SAO_PAULO)
         _render_pagina_indicadores(
-            f"São Paulo · Consultores reportando a {GESTOR_SAO_PAULO.split()[0]}", equipe_sp
+            f"São Paulo · Consultores da Frente {FRENTE_SAO_PAULO}", equipe_sp
         )
 
     elif pagina == "⚓ Santos":
-        equipe_santos = _consultores_por_gestor(GESTOR_SANTOS)
+        equipe_santos = _usuarios_da_frente(carregar_usuarios(), FRENTE_SANTOS)
         _render_pagina_indicadores(
-            f"Santos · Consultores reportando a {GESTOR_SANTOS.split()[0]}", equipe_santos
+            f"Santos · Consultores da Frente {FRENTE_SANTOS}", equipe_santos
         )
 
     st.markdown('</div>', unsafe_allow_html=True)
