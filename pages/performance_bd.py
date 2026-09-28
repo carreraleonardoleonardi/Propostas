@@ -373,8 +373,24 @@ def _scalar(sql: str, params: dict) -> float:
 
 @st.cache_data(ttl=180, show_spinner=False)
 def _df(sql: str, params: dict) -> pd.DataFrame:
+    """
+    Executa a query direto via SQLAlchemy (Connection.execute) e monta o
+    DataFrame manualmente, em vez de usar pd.read_sql().
+
+    Motivo: pd.read_sql() decide internamente se a conexão é "SQLAlchemy
+    válida" com um teste de compatibilidade que pode falhar dependendo da
+    combinação exata de versões de pandas/sqlalchemy instaladas — quando
+    isso acontece, ele cai num caminho antigo que não aceita o objeto
+    sa.text(sql) e explode com "Query must be a string unless using
+    sqlalchemy." mesmo a conexão estando 100% correta. Executando via
+    SQLAlchemy puro, esse problema não existe — funciona igual em
+    qualquer versão.
+    """
     with _engine().connect() as conn:
-        return pd.read_sql(sa.text(sql), conn, params=params)
+        resultado = conn.execute(sa.text(sql), params or {})
+        colunas = list(resultado.keys())
+        linhas = resultado.fetchall()
+    return pd.DataFrame(linhas, columns=colunas)
 
 
 def _filtro_consultor(consultores: list | None, params: dict, prefixo="c", coluna: str = None) -> str:
@@ -729,7 +745,7 @@ def _ranking_geral_consultor(ini: date, fim: date, consultores=None) -> pd.DataF
         df[c] = df[c].fillna(0)
 
     df["conversao"] = df.apply(
-        lambda r: (r["leads_pescados"] / r["assinados"] * 100) if r["assinados"] else 0.0, axis=1
+        lambda r: (r["assinados"] / r["leads_pescados"] * 100) if r["leads_pescados"] else 0.0, axis=1
     )
 
     metas_mes = _metas_do_mes(ini.year, ini.month)
@@ -819,7 +835,101 @@ def _curva_acumulada_3(mes_ini: date, mes_fim: date, mes_ant_ini: date, mes_ant_
     return base, label_atual, label_ant, label_melhor
 
 
-def _plotly_curva_acumulada(df: pd.DataFrame, label_atual: str, label_ant: str, label_melhor: str) -> go.Figure:
+# ── Curva acumulada de ENTREGAS (Gestão de Veículos, não Azure) ─────────────
+@st.cache_data(ttl=180, show_spinner=False)
+def _curva_entregas(ini: date, fim: date, consultores=None) -> pd.DataFrame:
+    """Volume de veículos entregues por dia — vem da Gestão de Veículos (Google Sheets)."""
+    try:
+        df_gv = gv_carregar()
+    except Exception:
+        return pd.DataFrame(columns=["dia", "entregas"])
+    if df_gv.empty or "status" not in df_gv.columns:
+        return pd.DataFrame(columns=["dia", "entregas"])
+
+    df_gv = df_gv.copy()
+    df_gv["_data_entrega_dt"] = df_gv.get("data_entrega", "").apply(parse_data)
+    entregues = df_gv[
+        (df_gv["status"] == "Entregue")
+        & df_gv["_data_entrega_dt"].apply(lambda d: d is not None and ini <= d <= fim)
+    ]
+    if consultores and "consultor" in entregues.columns:
+        entregues = entregues[entregues["consultor"].isin(consultores)]
+    if entregues.empty:
+        return pd.DataFrame(columns=["dia", "entregas"])
+
+    contagem = entregues.groupby("_data_entrega_dt").size().reset_index(name="entregas")
+    return contagem.rename(columns={"_data_entrega_dt": "dia"}).sort_values("dia")
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _melhor_mes_historico_entregas(consultores=None):
+    """(ano, mes, total) do mês com mais veículos entregues já registrado na Gestão de Veículos."""
+    try:
+        df_gv = gv_carregar()
+    except Exception:
+        return None
+    if df_gv.empty or "status" not in df_gv.columns:
+        return None
+
+    df_gv = df_gv.copy()
+    df_gv["_data_entrega_dt"] = df_gv.get("data_entrega", "").apply(parse_data)
+    entregues = df_gv[(df_gv["status"] == "Entregue") & df_gv["_data_entrega_dt"].notna()]
+    if consultores and "consultor" in entregues.columns:
+        entregues = entregues[entregues["consultor"].isin(consultores)]
+    if entregues.empty:
+        return None
+
+    entregues = entregues.copy()
+    entregues["_ano_mes"] = entregues["_data_entrega_dt"].apply(lambda d: (d.year, d.month))
+    contagem = entregues.groupby("_ano_mes").size()
+    if contagem.empty:
+        return None
+    (ano_b, mes_b) = contagem.idxmax()
+    return int(ano_b), int(mes_b), int(contagem.max())
+
+
+def _curva_acumulada_entregas_3(mes_ini: date, mes_fim: date, mes_ant_ini: date, mes_ant_fim: date,
+                                 consultores=None):
+    """Mesma lógica de _curva_acumulada_3, mas para ENTREGAS (Gestão de Veículos)."""
+    curva_atual = _curva_entregas(mes_ini, mes_fim, consultores)
+    curva_ant   = _curva_entregas(mes_ant_ini, mes_ant_fim, consultores)
+
+    melhor = _melhor_mes_historico_entregas(consultores)
+    melhor_fim_dia = 0
+    if melhor:
+        ano_b, mes_b, _total_b = melhor
+        melhor_ini, melhor_fim = _periodo_mes(date(ano_b, mes_b, 1))
+        curva_melhor = _curva_entregas(melhor_ini, melhor_fim, consultores)
+        label_melhor = f"{MESES_PT[mes_b]}/{ano_b} (recorde)"
+        melhor_fim_dia = melhor_fim.day
+    else:
+        curva_melhor = pd.DataFrame()
+        label_melhor = "Melhor mês (sem dados)"
+
+    label_atual = f"{MESES_PT[mes_fim.month]}/{mes_fim.year}"
+    label_ant   = f"{MESES_PT[mes_ant_fim.month]}/{mes_ant_fim.year}"
+
+    ultimo_dia = max(mes_fim.day, mes_ant_fim.day, melhor_fim_dia, 1)
+    base = pd.DataFrame({"dia_mes": range(1, ultimo_dia + 1)}).set_index("dia_mes")
+
+    def _prep(curva_df):
+        serie = pd.Series(0, index=base.index, dtype=float)
+        if curva_df is not None and not curva_df.empty:
+            c = curva_df.copy()
+            c["dia_mes"] = pd.to_datetime(c["dia"]).dt.day
+            c = c.set_index("dia_mes")["entregas"]
+            serie.update(c)
+        return serie.cumsum()
+
+    base[label_atual]  = _prep(curva_atual)
+    base[label_ant]    = _prep(curva_ant)
+    base[label_melhor] = _prep(curva_melhor)
+
+    return base, label_atual, label_ant, label_melhor
+
+
+def _plotly_curva_acumulada(df: pd.DataFrame, label_atual: str, label_ant: str, label_melhor: str,
+                             titulo_eixo_y: str = "Contratos acumulados") -> go.Figure:
     """Gráfico Plotly com as 3 curvas acumuladas + rótulo numérico em cada ponto."""
     cores = {label_atual: DOURADO, label_ant: AZUL2, label_melhor: VERDE}
     fig = go.Figure()
@@ -835,7 +945,7 @@ def _plotly_curva_acumulada(df: pd.DataFrame, label_atual: str, label_ant: str, 
         ))
     fig.update_layout(
         height=340, margin=dict(l=10, r=10, t=10, b=10),
-        xaxis_title="Dia do mês", yaxis_title="Contratos acumulados",
+        xaxis_title="Dia do mês", yaxis_title=titulo_eixo_y,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         plot_bgcolor="white", paper_bgcolor="white",
         xaxis=dict(gridcolor="#f0ebe2"), yaxis=dict(gridcolor="#f0ebe2"),
@@ -1130,7 +1240,7 @@ def _tabela_ranking_geral_html(df: pd.DataFrame) -> str:
             f"<td>{_fmt_num(r.get('leads_pescados', 0))}</td>"
             f"<td>{_fmt_num(r.get('assinados', 0))}</td>"
             f"<td>{_fmt_num(r.get('entregues', 0))}</td>"
-            f"<td><b>{r.get('conversao', 0):.1f}%</b></td>"
+            f"<td><b>{_fmt_pct(r.get('conversao', 0))}</b></td>"
             f"<td>{_fmt_brl(r.get('comissao_carrera', 0))}</td>"
             f"<td>{_fmt_brl(r.get('comissao_vendedor', 0))}</td></tr>"
         )
@@ -1244,6 +1354,25 @@ def _render_pagina_indicadores(titulo: str, consultores=None):
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
+    # ── Curva acumulada de ENTREGAS — mês atual x anterior x recorde ─────
+    st.markdown('<div class="pf-card">', unsafe_allow_html=True)
+    st.markdown('<div class="pf-card-titulo">📦 Curva Acumulada de Entregas — Mês Atual × Mês Anterior × Melhor Mês</div>',
+                unsafe_allow_html=True)
+    with st.spinner("Buscando o melhor mês de entregas já registrado..."):
+        df_acc_ent, lbl_atual_ent, lbl_ant_ent, lbl_melhor_ent = _curva_acumulada_entregas_3(
+            mes_ini, mes_fim, mes_ant_ini, mes_ant_fim, consultores)
+    if df_acc_ent.empty or df_acc_ent.sum().sum() == 0:
+        st.info("Sem entregas suficientes para montar a curva.")
+    else:
+        st.plotly_chart(
+            _plotly_curva_acumulada(df_acc_ent, lbl_atual_ent, lbl_ant_ent, lbl_melhor_ent,
+                                     titulo_eixo_y="Entregas acumuladas"),
+            use_container_width=True, key=f"plotly_acc_entregas_{titulo}",
+        )
+        st.caption(f"🟡 {lbl_atual_ent} (mês atual) · 🔵 {lbl_ant_ent} (mês anterior) · 🟢 {lbl_melhor_ent}")
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
     # ── Ranking de Consultores (mês atual) — largura total ───────────────
     st.markdown('<div class="pf-card">', unsafe_allow_html=True)
     st.markdown('<div class="pf-card-titulo">🧑‍💼 Ranking de Consultores (mês atual)</div>',
@@ -1293,7 +1422,7 @@ def _render_pagina_indicadores(titulo: str, consultores=None):
             "Somente consultores cadastrados no sistema · ordenado por Assinados (maior → menor) · "
             "Assinados = quantidade de veículos (não de contratos) · "
             "Entregues e Comissões vêm da Gestão de Veículos (veículos entregues no mês) · "
-            "Conversão = Leads Pescados ÷ Assinados · "
+            "Conversão = Assinados ÷ Leads Pescados · "
             "Meta do Mês vem do módulo Metas (meta 'Geral' Mensal do responsável)."
         )
     st.markdown('</div>', unsafe_allow_html=True)
@@ -1630,6 +1759,8 @@ def _gerar_pdf_relatorio() -> bytes:
 
     curva_acc_3, lbl_acc_atual, lbl_acc_ant, lbl_acc_melhor = _curva_acumulada_3(
         mes_ini, mes_fim, mes_ant_ini, mes_ant_fim)
+    curva_acc_ent_3, lbl_acc_ent_atual, lbl_acc_ent_ant, lbl_acc_ent_melhor = _curva_acumulada_entregas_3(
+        mes_ini, mes_fim, mes_ant_ini, mes_ant_fim)
 
     rank_geral = _ranking_geral_consultor(mes_ini, mes_fim)
     if not rank_geral.empty:
@@ -1838,7 +1969,7 @@ def _gerar_pdf_relatorio() -> bytes:
                 str(r["consultor"])[:22], str(r.get("meta", "—")),
                 f"{int(r['ligacoes'])}", f"{int(r['leads_pescados'])}",
                 f"{int(r['assinados'])}", f"{int(r['entregues'])}",
-                f"{r['conversao']:.1f}%",
+                _fmt_pct(r['conversao']),
                 _fmt_brl(r.get("comissao_carrera", 0)), _fmt_brl(r.get("comissao_vendedor", 0)),
             ])
         t = Table(linhas, colWidths=[3.3*cm, 1.3*cm, 1.6*cm, 1.8*cm, 1.7*cm, 1.7*cm, 1.5*cm, 2.3*cm, 2.3*cm], repeatRows=1)
@@ -1867,14 +1998,14 @@ def _gerar_pdf_relatorio() -> bytes:
             linhas.append([
                 str(r["consultor"])[:28], f"{int(r['ligacoes'])}", f"{int(r['leads_pescados'])}",
                 f"{int(r['assinados'])}", f"{int(r['previsao'])}", f"{int(r['entregues'])}",
-                f"{r['conversao']:.1f}%",
+                _fmt_pct(r['conversao']),
             ])
         tot = df[["ligacoes", "leads_pescados", "assinados", "previsao", "entregues"]].sum()
         tot_conv = (tot["assinados"] / tot["leads_pescados"] * 100) if tot["leads_pescados"] else 0
         linhas.append([
             "TOTAL GERAL", f"{int(tot['ligacoes'])}", f"{int(tot['leads_pescados'])}",
             f"{int(tot['assinados'])}", f"{int(tot['previsao'])}", f"{int(tot['entregues'])}",
-            f"{tot_conv:.1f}%",
+            _fmt_pct(tot_conv),
         ])
         t = Table(linhas, colWidths=[4.3*cm, 2.1*cm, 2.3*cm, 2.1*cm, 2.1*cm, 2.1*cm, 1.6*cm], repeatRows=1)
         t.setStyle(TableStyle([
@@ -1951,11 +2082,20 @@ def _gerar_pdf_relatorio() -> bytes:
     ]))
 
     if not curva_acc_3.empty and curva_acc_3.sum().sum() > 0:
-        story.append(Paragraph("Curva Acumulada — Mês Atual × Mês Anterior × Melhor Mês", st_sub_secao))
+        story.append(Paragraph("Curva Acumulada de Contratos — Mês Atual × Mês Anterior × Melhor Mês", st_sub_secao))
         story.append(grafico_linha(curva_acc_3))
         story.append(Paragraph(
             f"Dourado: {lbl_acc_atual} (mês atual) · Azul-escuro: {lbl_acc_ant} (mês anterior) · "
             f"Verde: {lbl_acc_melhor}", st_rodape,
+        ))
+        story.append(Spacer(1, 0.3*cm))
+
+    if not curva_acc_ent_3.empty and curva_acc_ent_3.sum().sum() > 0:
+        story.append(Paragraph("Curva Acumulada de Entregas — Mês Atual × Mês Anterior × Melhor Mês", st_sub_secao))
+        story.append(grafico_linha(curva_acc_ent_3))
+        story.append(Paragraph(
+            f"Dourado: {lbl_acc_ent_atual} (mês atual) · Azul-escuro: {lbl_acc_ent_ant} (mês anterior) · "
+            f"Verde: {lbl_acc_ent_melhor}", st_rodape,
         ))
         story.append(Spacer(1, 0.3*cm))
 
@@ -1983,7 +2123,7 @@ def _gerar_pdf_relatorio() -> bytes:
         story.append(Spacer(1, 0.2*cm))
         story.append(Paragraph(
             "Somente consultores cadastrados no sistema · ordenado por Assinados · "
-            "Assinados = quantidade de veículos · Conversão = Leads Pescados ÷ Assinados.",
+            "Assinados = quantidade de veículos · Conversão = Assinados ÷ Leads Pescados.",
             st_rodape,
         ))
 

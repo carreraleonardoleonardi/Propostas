@@ -4,6 +4,8 @@ import requests
 import json
 import datetime
 import io
+import unicodedata
+from urllib.parse import quote
 
 from autenticacao import carregar_usuarios, get_col
 
@@ -196,6 +198,115 @@ def sol_carregar():
 
 def sol_novo_id():
     return "SOL" + datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
+
+# ── Base de Veículos (modelos / opcionais / cores) — usada no cadastro manual ──
+BASE_VEICULOS_ID = "1O7p8gEBstXZVZKpAu6sQntAURy82DtpSalLbkeAXLCg"
+
+def _norm_txt(v) -> str:
+    """minúsculo, sem acento, espaços→_ (para comparar nomes de colunas/valores)."""
+    t = unicodedata.normalize("NFKD", str(v or "")).encode("ascii", "ignore").decode()
+    return "_".join(t.strip().lower().split())
+
+@st.cache_data(ttl=300, show_spinner=False)
+def base_veiculos_carregar(aba: str) -> pd.DataFrame:
+    """Lê uma aba da planilha 'Base de Veículos' pelo NOME da aba (não precisa de gid)."""
+    url = (f"https://docs.google.com/spreadsheets/d/{BASE_VEICULOS_ID}"
+           f"/gviz/tq?tqx=out:csv&sheet={quote(aba)}")
+    try:
+        r = requests.get(url, timeout=30)
+        r.raise_for_status()
+        r.encoding = "utf-8"
+        df = pd.read_csv(io.StringIO(r.text), dtype=str).fillna("")
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+def _achar_col(df: pd.DataFrame, candidatos: list):
+    mapa = {_norm_txt(c): c for c in df.columns}
+    for cand in candidatos:
+        if _norm_txt(cand) in mapa:
+            return mapa[_norm_txt(cand)]
+    return None
+
+def _linhas_do_modelo(df_aba: pd.DataFrame, modelo_row):
+    """Linhas de uma aba (Opcionais/Cores) que pertencem ao modelo selecionado.
+
+    Ordem de tentativa:
+      1) id_modelo   (igualdade exata, se a aba tiver essa coluna)
+      2) Modelo_Completo (igualdade exata, se a aba tiver essa coluna)
+      3) coluna Modelo que pode listar VÁRIOS modelos separados por vírgula
+         (ex.: "T-Cross, Taos, Tiguan"): separa por vírgula e compara cada nome
+         com o Modelo do veículo — evita que "Onix" case com "Onix Plus".
+         Se nada casar, cai no "contém" (equivalente ao LIKE '%modelo%').
+         Se a aba tiver Fabricante, filtra também por ele (sem travar se vier vazio).
+    Retorna (df, descrição_do_critério)."""
+    if df_aba.empty:
+        return df_aba, None
+
+    for nome_col, campo in (("id_modelo", "id_modelo"), ("modelo_completo", "Modelo_Completo")):
+        col = _achar_col(df_aba, [nome_col])
+        valor = str(modelo_row.get(campo, "")).strip()
+        if col and valor:
+            sub = df_aba[df_aba[col].astype(str).str.strip().str.casefold() == valor.casefold()]
+            if not sub.empty:
+                return sub, col
+
+    col_mod = _achar_col(df_aba, ["modelo"])
+    alvo = _norm_txt(modelo_row.get("Modelo", ""))
+    if col_mod and alvo:
+        base = df_aba
+        col_fab = _achar_col(df_aba, ["fabricante"])
+        fab = _norm_txt(modelo_row.get("Fabricante", ""))
+        if col_fab and fab:
+            so_fab = df_aba[df_aba[col_fab].astype(str).map(_norm_txt) == fab]
+            if not so_fab.empty:
+                base = so_fab
+
+        def _tokens(celula):
+            return {_norm_txt(t) for t in str(celula).split(",") if t.strip()}
+
+        sub = base[base[col_mod].map(lambda c: alvo in _tokens(c))]
+        if not sub.empty:
+            return sub, f"{col_mod} (lista separada por vírgula)"
+        sub = base[base[col_mod].astype(str).map(_norm_txt).str.contains(alvo, regex=False)]
+        if not sub.empty:
+            return sub, f"{col_mod} (contém)"
+    return df_aba.iloc[0:0], None
+
+def _valores_da_aba(sub: pd.DataFrame, candidatos: list) -> list:
+    """Valores (sem repetição, na ordem da planilha) da coluna de conteúdo da aba.
+    Acha a coluna pelos nomes candidatos; se não achar, por nome parecido
+    (ex.: 'Opcionais Completos' contém 'opc'); por último, 1ª coluna que não seja chave."""
+    if sub.empty:
+        return []
+    col = _achar_col(sub, candidatos)
+    if col is None:
+        radicais = {_norm_txt(c)[:3] for c in candidatos}
+        for c in sub.columns:
+            n = _norm_txt(c)
+            if not n.startswith("id") and any(r in n for r in radicais):
+                col = c
+                break
+    if col is None:  # fallback: 1ª coluna que não seja chave de ligação
+        chaves = {"fabricante", "modelo_completo", "modelo", "versao"}
+        resto = [c for c in sub.columns
+                 if _norm_txt(c) not in chaves and not _norm_txt(c).startswith("id")]
+        col = resto[0] if resto else None
+    if col is None:
+        return []
+    vistos, out = set(), []
+    for v in sub[col].astype(str).str.strip():
+        if v and v not in vistos:
+            vistos.add(v); out.append(v)
+    return out
+
+def _casar_lista(valor: str, lista: list) -> str:
+    """Ajusta 'Hibrido' → 'Híbrido' etc., comparando sem acento; senão devolve o original."""
+    for item in lista:
+        if _norm_txt(item) == _norm_txt(valor):
+            return item
+    return valor
 
 def gv_enviar(payload):
     try:
@@ -1179,24 +1290,97 @@ def render():
 
                 # ── Manual ────────────────────────────────
                 if "Manual" in modo:
+                    # ── Veículo (vem da Base de Veículos) ────────────────────────
+                    # Fica FORA do st.form de propósito: um st.form só reage no
+                    # submit, então Modelo → Cor/Opcionais/Anos não atualizariam
+                    # na hora. Aqui os widgets reagem a cada escolha.
+                    st.markdown("**🔍 Veículo** &nbsp;<span style='font-size:11px;color:#94a3b8;font-weight:400'>(dados vêm da planilha Base de Veículos)</span>", unsafe_allow_html=True)
+                    df_base_mod = base_veiculos_carregar("Modelos")
+                    col_mc = _achar_col(df_base_mod, ["Modelo_Completo"]) if not df_base_mod.empty else None
+                    if df_base_mod.empty or col_mc is None:
+                        st.error("Não consegui ler a aba 'Modelos' da Base de Veículos (a planilha precisa estar "
+                                 "compartilhada como 'qualquer pessoa com o link pode ver' e ter a coluna Modelo_Completo).")
+                        fab = mod = cor = anof = anom = comb = opc = ""
+                    else:
+                        df_base_mod = df_base_mod[df_base_mod[col_mc].astype(str).str.strip() != ""]
+                        col_fab_base = _achar_col(df_base_mod, ["Fabricante"])
+                        lista_fab = (sorted(df_base_mod[col_fab_base].astype(str).str.strip().replace("", pd.NA)
+                                            .dropna().unique().tolist(), key=str.casefold)
+                                     if col_fab_base else [])
+                        f1, f2 = st.columns([1, 2])
+                        with f1:
+                            fab_sel = st.selectbox("Fabricante *", lista_fab, index=None,
+                                                   placeholder="Selecione o fabricante...", key="cad_fabricante")
+                        # só os modelos do fabricante escolhido
+                        if fab_sel and col_fab_base:
+                            df_mod_fab = df_base_mod[df_base_mod[col_fab_base].astype(str).str.strip() == fab_sel]
+                        else:
+                            df_mod_fab = df_base_mod.iloc[0:0]
+                        lista_modelos = sorted(df_mod_fab[col_mc].astype(str).str.strip().unique().tolist(), key=str.casefold)
+                        with f2:
+                            # a chave inclui o fabricante: ao trocar de fabricante o modelo volta a ficar vazio
+                            mod_sel = st.selectbox("Modelo *", lista_modelos, index=None,
+                                                   placeholder=("Digite ou selecione o modelo..." if fab_sel
+                                                                else "Escolha o fabricante primeiro"),
+                                                   key=f"cad_modelo_{_norm_txt(fab_sel) or 'vazio'}",
+                                                   disabled=not fab_sel)
+                        linha_mod = None
+                        if mod_sel:
+                            linha_mod = df_mod_fab[df_mod_fab[col_mc].astype(str).str.strip() == mod_sel].iloc[0].to_dict()
+                        mid = _norm_txt(linha_mod.get("id_modelo", mod_sel)) if linha_mod else "vazio"
+
+                        def _v(campo):
+                            return str(linha_mod.get(campo, "")).strip() if linha_mod else ""
+
+                        fab  = _casar_lista(fab_sel or "", GV_FABRICANTES)
+                        anof = _v("Ano_Fabricacao")
+                        anom = _v("Ano_Modelo")
+                        comb = _casar_lista(_v("Combustivel"), GV_COMBUSTIVEIS)
+                        mod  = mod_sel or ""
+
+                        a2, a3, a4 = st.columns(3)
+                        with a2: st.text_input("Ano Fabricação", value=anof, disabled=True, key=f"cad_anof_{mid}")
+                        with a3: st.text_input("Ano Modelo", value=anom, disabled=True, key=f"cad_anom_{mid}")
+                        with a4: st.text_input("Combustível", value=comb, disabled=True, key=f"cad_comb_{mid}")
+
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            opc_vals = []
+                            if linha_mod:
+                                df_opc = base_veiculos_carregar("Opcionais")
+                                sub_opc, _ = _linhas_do_modelo(df_opc, linha_mod)
+                                opc_vals = _valores_da_aba(sub_opc, ["Opcionais", "Opcional", "Descricao", "Itens"])
+                            NENHUM = "— Nenhum —"
+                            opc_sel = st.selectbox("Opcionais", [NENHUM] + opc_vals, key=f"cad_opc_{mid}",
+                                                   disabled=not linha_mod)
+                            opc = "" if opc_sel == NENHUM else opc_sel
+                            if linha_mod and not opc_vals:
+                                st.caption("Nenhum opcional cadastrado na aba Opcionais para este modelo.")
+                        with b2:
+                            cor_vals = []
+                            if linha_mod:
+                                df_cor = base_veiculos_carregar("Cores")
+                                sub_cor, _ = _linhas_do_modelo(df_cor, linha_mod)
+                                cor_vals = _valores_da_aba(sub_cor, ["Cor", "Cores", "Nome_Cor", "Descricao"])
+                            if linha_mod and not cor_vals:
+                                cor = st.text_input("Cor * (não encontrada na base)", key=f"cad_corlivre_{mid}")
+                                st.caption("Nenhuma cor cadastrada na aba Cores para este modelo — digite manualmente.")
+                            else:
+                                cor = st.selectbox("Cor *", cor_vals, index=None,
+                                                   placeholder="Selecione a cor..." if linha_mod else "Escolha o modelo primeiro",
+                                                   key=f"cad_cor_{mid}", disabled=not linha_mod) or ""
+
                     with st.form("f_cad"):
  
                         # ── Identificação ────────────────────────────
-                        st.markdown("**🔍 Identificação**")
+                        st.markdown("**🔑 Identificação**")
                         c1, c2, c3 = st.columns(3)
                         with c1:
-                            fab    = st.selectbox("Fabricante *", GV_FABRICANTES)
-                            mod    = st.text_input("Modelo *")
-                            cor    = st.text_input("Cor *")
-                        with c2:
                             chassi = st.text_input("Chassi *")
+                        with c2:
                             placa  = st.text_input("Placa")
-                            comb   = st.selectbox("Combustível", GV_COMBUSTIVEIS)
                         with c3:
-                            anof   = st.text_input("Ano Fabricação")
-                            anom   = st.text_input("Ano Modelo")
-                            opc    = st.text_input("Opcionais")
-                        cond = st.selectbox("Condição *", GV_CONDICOES)
+                            cond = st.selectbox("Condição *", GV_CONDICOES)
  
                         # ── Operacional ──────────────────────────────
                         st.markdown("**🏢 Operacional**")
@@ -1239,8 +1423,8 @@ def render():
                         )
  
                         if st.form_submit_button("💾 Cadastrar", use_container_width=True, type="primary"):
-                            if not mod or not chassi:
-                                st.error("Modelo e Chassi são obrigatórios.")
+                            if not mod or not chassi or not cor:
+                                st.error("Modelo, Cor e Chassi são obrigatórios.")
                             elif "chassi" in df_gv.columns and chassi.upper() in df_gv["chassi"].astype(str).str.upper().values:
                                 st.error("Chassi já existe!")
                             else:
@@ -1269,6 +1453,10 @@ def render():
                                     gv_carregar.clear()
                                     st.success("✅ Veículo cadastrado!")
                                     st.session_state["gv_cad_open"] = False
+                                    # limpa as escolhas do cadastro (modelo/opcionais/cor) p/ o próximo
+                                    for _k in list(st.session_state.keys()):
+                                        if str(_k).startswith(("cad_fabricante", "cad_modelo", "cad_opc_", "cad_cor_", "cad_corlivre_")):
+                                            del st.session_state[_k]
                                     st.rerun()
  
 
