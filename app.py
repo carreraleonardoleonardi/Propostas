@@ -2,6 +2,7 @@
 # app.py — ponto de entrada do sistema
 # =========================================================
 
+import unicodedata
 import streamlit as st
 import datetime
 import json
@@ -377,6 +378,39 @@ def obter_validade_planos(planos):
 
 
 # =========================================================
+# FILTRO: mostra no card só as ofertas válidas
+# (tudo que for diferente de "Não disponível")
+# =========================================================
+
+def _oferta_indisponivel(valor) -> bool:
+    txt = unicodedata.normalize("NFKD", str(valor or "")).encode("ascii", "ignore").decode()
+    return "nao disponivel" in " ".join(txt.lower().split())
+
+
+def filtrar_planos_disponiveis(planos):
+    """Remove as linhas 'Não disponível' e os prazos que ficarem sem nenhuma oferta.
+    'Sob consulta' e valores em R$ continuam. A data de validade é preservada."""
+    if not planos:
+        return planos
+
+    validade = obter_validade_planos(planos)
+    filtrados = {}
+
+    for prazo, itens in planos.items():
+        mantidos = []
+        for item in (itens or []):
+            if _oferta_indisponivel(item.get("valor", "")):
+                continue
+            if validade and not item.get("validoAte"):
+                item = {**item, "validoAte": validade}
+            mantidos.append(item)
+        if mantidos:
+            filtrados[prazo] = mantidos
+
+    return filtrados
+
+
+# =========================================================
 # CARD HTML
 # =========================================================
 
@@ -387,6 +421,8 @@ def gerar_card_plano_html(
     segmento="",
     versao=""
 ):
+
+    planos = filtrar_planos_disponiveis(planos)
 
     # -----------------------------------------------------
     # NOVA REGRA:
@@ -833,6 +869,8 @@ def gerar_card_png(
     segmento="",
     versao=""
 ):
+
+    planos = filtrar_planos_disponiveis(planos)
 
     S = 1.636
 
