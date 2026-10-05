@@ -44,7 +44,9 @@ BASES = {
 
     "GM Fleet Elétricos": "https://docs.google.com/spreadsheets/d/1-Tnbo6s8QXew8gz8xAWwklusMgtB3KbfRU9DYuA90NI/export?format=csv&gid=1332991446",
 
-    "Arval": "https://docs.google.com/spreadsheets/d/12fxyRpNCbUB73I5-rjCEs3d_tpg0gYw0Ihd87KiCWOg/export?format=csv&gid=691004799#gid=691004799"
+    "Arval": "https://docs.google.com/spreadsheets/d/12fxyRpNCbUB73I5-rjCEs3d_tpg0gYw0Ihd87KiCWOg/export?format=csv&gid=691004799#gid=691004799",
+    
+    "TOOT": "https://docs.google.com/spreadsheets/d/1euc84u2A-etjSllh_iutkAh0s_emnvhJe0wwxomL2uI/export?format=csv&gid=0"
 }
 
 
