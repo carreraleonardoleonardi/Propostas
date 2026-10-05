@@ -182,6 +182,18 @@ def carregar_base(url: str) -> pd.DataFrame:
         )
     )
 
+    # -----------------------------------------------------
+    # Bases novas nem sempre chamam a coluna do veículo de
+    # "nome". Se não existir "nome", usa a primeira dessas
+    # colunas que existir (ex.: base TOOT usa "marca").
+    # Bases que já têm "nome" não são alteradas.
+    # -----------------------------------------------------
+    if "nome" not in df.columns:
+        for alternativa in ("marca", "veiculo", "modelo"):
+            if alternativa in df.columns:
+                df["nome"] = df[alternativa]
+                break
+
     return df
 
 
