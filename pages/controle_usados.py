@@ -48,7 +48,7 @@ def cu_val(row, col, default="") -> str:
 def render():
     st.title("🚙 Controle de Usados")
 
-    is_staff = st.session_state.get("auth_tipo","") == "Staff"
+    is_staff = st.session_state.get("auth_tipo","") in ("Staff", "Entregador")  # Entregador também edita/dá saída
 
     # Sub-abas
     if is_staff:
@@ -154,17 +154,23 @@ def render():
     with sub[1]:
         st.markdown("### ➕ Registrar Recebimento")
         with st.form("form_cu_receber"):
+            # Linha 1: Placa e Fabricante lado a lado (primeiros itens)
+            p1, p2, p3 = st.columns(3)
+            with p1:
+                placa  = st.text_input("Placa *")
+            with p2:
+                marca  = st.selectbox("Marca (Fabricante) *", CU_MARCAS)
+            with p3:
+                modelo = st.text_input("Modelo *")
+
             r1, r2, r3 = st.columns(3)
             with r1:
                 data_entrada = st.date_input("📅 Data Entrada *", value=datetime.date.today())
                 locadora     = st.selectbox("Locadora *", CU_LOCADORAS)
-                local        = st.selectbox("Local *", CU_LOCAIS)
             with r2:
-                marca  = st.selectbox("Marca *", CU_MARCAS)
-                modelo = st.text_input("Modelo *")
-                placa  = st.text_input("Placa *")
-            with r3:
+                local  = st.selectbox("Local *", CU_LOCAIS)
                 chassi = st.text_input("Chassi")
+            with r3:
                 cor    = st.text_input("Cor")
                 km     = st.text_input("KM")
                 vex    = st.text_input("VEX")
@@ -196,7 +202,7 @@ def render():
                         st.rerun()
 
     # ════════════════════════════════════════════════════
-    # EDITAR / SAÍDA (só Staff)
+    # EDITAR / SAÍDA (Staff e Entregador)
     # ════════════════════════════════════════════════════
     if is_staff:
         with sub[2]:
